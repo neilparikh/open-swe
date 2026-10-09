@@ -26,6 +26,7 @@ async def admin_list_users(
                 "github_login": user.github_login,
                 "email": user.email,
                 "slack_user_id": user.slack_user_id or None,
+                "microsoft_login": user.microsoft_login or None,
                 "display_name": user.display_name,
                 "avatar_url": user.avatar_url,
                 "is_admin": user.is_admin,

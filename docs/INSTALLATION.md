@@ -392,17 +392,20 @@ Open SWE listens for Linear comments that mention `@openswe`.
 <details id="microsoft-teams">
 <summary><strong>Microsoft Teams (preview)</strong></summary>
 
-The Teams bot is a preview of the installation and authentication plumbing: it answers every message with `hi` and does not start runs yet.
+The Teams bot is a preview of the installation, authentication, and account-linking plumbing: it greets people whose Microsoft account is linked to Open SWE and does not start runs yet.
 
 1. In the Azure portal, **Create a resource → Azure Bot**. Choose **Single Tenant** as the type of app, with a new Microsoft App ID; the free F0 tier is enough.
 2. In the bot's **Settings → Configuration**, set **Messaging endpoint** to `<URL>/webhooks/teams`. Save **Microsoft App ID** as `TEAMS_CLIENT_ID` and **App Tenant ID** as `TEAMS_TENANT_ID`. **Manage**, next to the app id, opens the app registration; under **Certificates & secrets**, create a client secret and save its value as `TEAMS_CLIENT_SECRET`.
 3. In **Settings → Channels**, add **Microsoft Teams**.
-4. From a checkout with `TEAMS_CLIENT_ID` in `.env`, run `make teams-package` (add `TEAMS_APP_NAME=open-swe-<you>` for a personal bot). It writes `dist/open-swe-teams.zip`.
-5. In Teams, **Apps → Manage your apps → Upload an app → Upload a custom app** and choose the zip. Your tenant's app setup policy must allow uploading custom apps; otherwise a Teams admin uploads it under **Teams apps → Manage apps**.
+4. In the same app registration, under **Authentication → Add a platform → Web**, add the redirect URI `<URL>/dashboard/api/microsoft/callback` (locally, `http://localhost:2024/dashboard/api/microsoft/callback`). Sign in with Microsoft uses it to link each person's Microsoft account; if your tenant restricts user consent, an admin grants consent for `openid` and `profile` once.
+5. From a checkout with `TEAMS_CLIENT_ID` in `.env`, run `make teams-package` (add `TEAMS_APP_NAME=open-swe-<you>` for a personal bot). It writes `dist/open-swe-teams.zip`.
+6. In Teams, **Apps → Manage your apps → Upload an app → Upload a custom app** and choose the zip. Your tenant's app setup policy must allow uploading custom apps; otherwise a Teams admin uploads it under **Teams apps → Manage apps**.
 
-Deliveries are accepted only with a Bot Framework token issued for `TEAMS_CLIENT_ID`, and replies only go to Microsoft's own service URLs. With any of the three variables unset, `/webhooks/teams` answers 503.
+Deliveries are accepted only with a Bot Framework token issued for `TEAMS_CLIENT_ID`, and replies only go to Microsoft's own service URLs. With any of the three variables unset, `/webhooks/teams` answers 503 and the Microsoft Teams connection is hidden.
 
-**Verify:** send the bot a direct message, or `@`-mention it in a team channel; it replies `hi`. Installing and removing the app are logged.
+Each person links their account under **Settings → Connections → Microsoft Teams**. The link is the Entra object id from a verified Microsoft sign in, the same id Teams sends with every message; only accounts in `TEAMS_TENANT_ID` can link, and no email is stored from it.
+
+**Verify:** send the bot a direct message, or `@`-mention it in a team channel; it asks you to connect your account. Connect Microsoft Teams in your settings and message it again; it replies `hi <your GitHub login>`. Installing and removing the app are logged.
 
 </details>
 

@@ -28,6 +28,7 @@ from openswe.review.routes import router as review_router
 from openswe.schedules.routes import router as schedules_router
 from openswe.skill_store.routes import router as skills_router
 from openswe.slack.dashboard_routes import router as slack_router
+from openswe.teams.connect import router as teams_router
 from openswe.threads.routes import router as threads_router
 from openswe.transcript.routes import router as transcript_router
 from openswe.ui_invalidations.routes import router as ui_invalidations_router
@@ -50,6 +51,7 @@ router.include_router(profiles_router)
 router.include_router(users_router)
 router.include_router(langsmith_router)
 router.include_router(slack_router)
+router.include_router(teams_router)
 router.include_router(workspace_settings_router)
 router.include_router(mcp_router)
 router.include_router(cli_mcp_tools_router)

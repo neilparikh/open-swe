@@ -221,12 +221,15 @@ export interface SessionUser {
   avatar_url: string | null
   user_id?: string | null
   slack_user_id?: string | null
+  /** Sign-in name of the linked Microsoft (Teams) account. */
+  microsoft_login?: string | null
   is_admin: boolean
   /** Mirrors the user's preference: what Enter does while a run is live. */
   follow_up_behavior?: FollowUpBehavior
   /** Whether the server records new threads into the transcript log. */
   transcript_recording?: boolean
   slack_oauth_enabled?: boolean
+  microsoft_oauth_enabled?: boolean
   build_info?: BuildInfo
   api_base_url?: string
   slack_base_url?: string
@@ -499,6 +502,7 @@ export interface AdminUser {
   github_login: string
   email: string
   slack_user_id: string | null
+  microsoft_login?: string | null
   display_name: string
   avatar_url: string
   is_admin: boolean
@@ -2139,7 +2143,7 @@ export function loginUrl(redirectTo?: string): string {
  * itself and resolves once the connection is stored.
  */
 export function connectService(
-  provider: "slack" | "langsmith",
+  provider: "slack" | "langsmith" | "microsoft",
   redirectTo?: string
 ) {
   const pending = window.openSweDesktop?.connectService(provider)

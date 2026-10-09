@@ -3,6 +3,7 @@ import { useState } from "react"
 import { Badge } from "@langchain/macaw-components/Badge"
 import { Button } from "@langchain/macaw-components/Button"
 import type { IconComponent } from "@langchain/macaw-components/Icon"
+import { MicrosoftTeamsLogoIcon } from "@phosphor-icons/react/dist/ssr/MicrosoftTeamsLogo"
 import { SlackLogoIcon } from "@phosphor-icons/react/dist/ssr/SlackLogo"
 
 import type { LangSmithConnectionStatus, SessionUser } from "@/lib/api"
@@ -28,7 +29,7 @@ function AccountRow({
 }: {
   label: string
   icon: IconComponent
-  provider: "slack"
+  provider: "slack" | "microsoft"
   enabled: boolean
   /** How the linked account reads after "Linked to", or null while unlinked. */
   linkedAs: string | null
@@ -183,6 +184,20 @@ export function ConnectionsSection({ user }: { user: SessionUser }) {
         }
         unlinkedDescription="Sign in with Slack so Open SWE resolves your GitHub account when you tag it — the verified email also resolves Linear mentions."
       />
+      {user.microsoft_oauth_enabled && (
+        <AccountRow
+          label="Microsoft Teams"
+          icon={MicrosoftTeamsLogoIcon}
+          provider="microsoft"
+          enabled
+          linkedAs={
+            user.microsoft_login
+              ? `Microsoft account ${user.microsoft_login}`
+              : null
+          }
+          unlinkedDescription="Sign in with Microsoft so Open SWE knows who you are when you message it in Teams."
+        />
+      )}
       <LangSmithRow />
     </SettingsSection>
   )

@@ -10947,6 +10947,181 @@
         ]
       }
     },
+    "/dashboard/api/microsoft/callback": {
+      "get": {
+        "description": "Link the Microsoft account the provider verified.",
+        "operationId": "microsoft_callback_dashboard_api_microsoft_callback_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": true,
+            "schema": {
+              "title": "State",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Microsoft Callback",
+        "tags": [
+          "dashboard",
+          "microsoft"
+        ]
+      }
+    },
+    "/dashboard/api/microsoft/desktop/exchange": {
+      "post": {
+        "description": "Finish a desktop Microsoft link with the app's own session.",
+        "operationId": "microsoft_desktop_exchange_dashboard_api_microsoft_desktop_exchange_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DesktopConnectExchange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Microsoft Desktop Exchange Dashboard Api Microsoft Desktop Exchange Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "DashboardSession": []
+          }
+        ],
+        "summary": "Microsoft Desktop Exchange",
+        "tags": [
+          "dashboard",
+          "microsoft"
+        ]
+      }
+    },
+    "/dashboard/api/microsoft/login": {
+      "get": {
+        "description": "Start Sign in with Microsoft to link it to the signed-in person.",
+        "operationId": "microsoft_login_dashboard_api_microsoft_login_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "desktop_handoff",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Desktop Handoff"
+            }
+          },
+          {
+            "in": "query",
+            "name": "desktop_port",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 65535,
+                  "minimum": 1024,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Desktop Port"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "DashboardSession": []
+          }
+        ],
+        "summary": "Microsoft Login",
+        "tags": [
+          "dashboard",
+          "microsoft"
+        ]
+      }
+    },
     "/dashboard/api/my-credentials/langsmith": {
       "delete": {
         "operationId": "disconnect_my_langsmith_dashboard_api_my_credentials_langsmith_delete",

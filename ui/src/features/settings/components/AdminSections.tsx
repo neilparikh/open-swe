@@ -376,6 +376,9 @@ export function UsersSection({ enabled }: { enabled: boolean }) {
                   <span className="truncate text-xs text-secondary">
                     {user.email}
                     {user.slack_user_id ? ` · Slack ${user.slack_user_id}` : ""}
+                    {user.microsoft_login
+                      ? ` · Teams ${user.microsoft_login}`
+                      : ""}
                   </span>
                 </div>
                 {user.is_admin && (

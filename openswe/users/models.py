@@ -39,7 +39,7 @@ from openswe.utils.json_types import JsonObject
 
 logger = logging.getLogger(__name__)
 
-Provider = Literal["github", "slack"]
+Provider = Literal["github", "slack", "microsoft"]
 
 
 class UserIdentity(Base):
@@ -85,6 +85,13 @@ class User(Base):
     @property
     def slack_user_id(self) -> str:
         return self._identity_field("slack", "external_id")
+
+    @property
+    def microsoft_login(self) -> str:
+        """The linked Microsoft account's sign-in name, for display; its id if it has none."""
+        return self._identity_field("microsoft", "login") or self._identity_field(
+            "microsoft", "external_id"
+        )
 
     @property
     def email(self) -> str:

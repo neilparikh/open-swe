@@ -1,7 +1,8 @@
 """The Microsoft Teams bot, built on the Microsoft 365 Agents SDK.
 
-For now it only exercises installation and Bot Framework auth: it verifies each
-delivery, answers every message with "hi", and logs installs and removals.
+For now it only exercises installation, Bot Framework auth and account
+linking: it verifies each delivery, greets a sender whose Microsoft account is
+linked by their GitHub login, asks anyone else to link it, and logs installs.
 """
 
 import asyncio
@@ -11,6 +12,7 @@ from http import HTTPStatus
 
 import jwt
 from fastapi import HTTPException, Request, Response
+from microsoft_agents.activity import ChannelAccount
 from microsoft_agents.authentication.msal import MsalAuth
 from microsoft_agents.hosting.core import (
     AgentApplication,
@@ -25,7 +27,9 @@ from microsoft_agents.hosting.core import (
 )
 from microsoft_agents.hosting.fastapi import CloudAdapter
 
-from openswe.config import ENV
+from openswe.dashboard.oauth import build_settings_url
+from openswe.teams.entra import EntraApp
+from openswe.users import User
 from openswe.utils.http import bearer_token
 
 logger = logging.getLogger(__name__)
@@ -34,13 +38,13 @@ logger = logging.getLogger(__name__)
 class TeamsBot:
     """The Bot Framework identity this deployment answers Microsoft Teams as."""
 
-    def __init__(self, *, client_id: str, client_secret: str, tenant_id: str) -> None:
+    def __init__(self, app: EntraApp) -> None:
         # Issuer checks are opt-in in the SDK; without them any Entra-signed
         # token that names our client id as its audience would pass.
         config = AgentAuthConfiguration(
-            client_id=client_id,
-            client_secret=client_secret,
-            tenant_id=tenant_id,
+            client_id=app.client_id,
+            client_secret=app.client_secret,
+            tenant_id=app.tenant_id,
             validate_issuer=True,
         )
         # Registering the config here is also what tells the validator which
@@ -59,18 +63,14 @@ class TeamsBot:
             ApplicationOptions(storage=MemoryStorage(), start_typing_timer=False),
             connection_manager=connections,
         )
-        self._app.activity("message")(_say_hi)
+        self._app.activity("message")(_greet)
         self._app.activity("installationUpdate")(_log_installation)
 
     @staticmethod
     def configured() -> TeamsBot | None:
         """The bot for the current ``TEAMS_*`` settings, or ``None`` when Teams is not set up."""
-        client_id = ENV.TEAMS_CLIENT_ID.get()
-        client_secret = ENV.TEAMS_CLIENT_SECRET.get()
-        tenant_id = ENV.TEAMS_TENANT_ID.get()
-        if not (client_id and client_secret and tenant_id):
-            return None
-        return _bot(client_id, client_secret, tenant_id)
+        app = EntraApp.configured()
+        return None if app is None else _bot(app)
 
     async def handle(self, request: Request) -> Response:
         """Answer one Bot Framework delivery once its sender is verified."""
@@ -106,13 +106,29 @@ class _NonBlockingMsalAuth(MsalAuth):
 
 
 @lru_cache(maxsize=1)
-def _bot(client_id: str, client_secret: str, tenant_id: str) -> TeamsBot:
+def _bot(app: EntraApp) -> TeamsBot:
     # Keyed by the settings, so a rotated secret builds a fresh bot.
-    return TeamsBot(client_id=client_id, client_secret=client_secret, tenant_id=tenant_id)
+    return TeamsBot(app)
 
 
-async def _say_hi(context: TurnContext, _state: TurnState) -> None:
-    await context.send_activity("hi")
+async def _greet(context: TurnContext, _state: TurnState) -> None:
+    await context.send_activity(await _greeting(context.activity.from_property))
+
+
+async def _greeting(sender: ChannelAccount | None) -> str:
+    """``hi`` to a linked sender by GitHub login; anyone else is asked to link."""
+    object_id = sender.aad_object_id if sender is not None else None
+    user = await User.for_identity("microsoft", object_id) if object_id else None
+    if user is not None and user.github_login:
+        return f"hi {user.github_login}"
+    # Token-free and the same for everyone, so it is safe in a shared channel.
+    settings_url = build_settings_url()
+    if settings_url is None:
+        return "I don't know who you are yet. Ask your Open SWE admin how to link your account."
+    return (
+        "I don't know who you are yet. Connect Microsoft Teams in "
+        f"[your Open SWE settings]({settings_url}), then message me again."
+    )
 
 
 async def _log_installation(context: TurnContext, _state: TurnState) -> None:

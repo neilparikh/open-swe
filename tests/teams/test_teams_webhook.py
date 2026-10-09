@@ -16,10 +16,12 @@ from microsoft_agents.hosting.fastapi import CloudAdapter
 
 from openswe.teams import bot
 from openswe.teams.routes import router
+from openswe.users import User, UserIdentity
 
 _CLIENT_ID = "6a1f0c52-3c39-4a39-9a8e-2c5a3a0f4b11"
 _TENANT_ID = "0b9f1e2d-7c6a-4f5e-8d3c-2b1a09f8e7d6"
 _TEAMS_SERVICE_URL = "https://smba.trafficmanager.net/amer/"
+_ALICE_OBJECT_ID = "alice-object-id"
 
 
 @pytest.fixture(autouse=True)
@@ -59,14 +61,14 @@ class _BlockingMsalClient:
         return {"access_token": "bot-token", "expires_in": 3600}
 
 
-def _activity(service_url: str) -> bytes:
+def _activity(service_url: str, sender_object_id: str = _ALICE_OBJECT_ID) -> bytes:
     return json.dumps(
         {
             "type": "message",
             "id": "1",
             "channelId": "msteams",
             "serviceUrl": service_url,
-            "from": {"id": "29:someone"},
+            "from": {"id": "29:someone", "aadObjectId": sender_object_id},
             "recipient": {"id": f"28:{_CLIENT_ID}"},
             "conversation": {"id": "a:conversation", "tenantId": _TENANT_ID},
             "text": "hello",
@@ -116,20 +118,42 @@ async def test_teams_webhook_never_replies_to_a_non_microsoft_service_url(
 
 
 @pytest.mark.asyncio
-async def test_teams_webhook_replies_without_blocking_the_event_loop(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("sender_object_id", "reply"),
+    [
+        pytest.param(_ALICE_OBJECT_ID, "hi alice", id="linked"),
+        pytest.param(
+            "someone-else",
+            "I don't know who you are yet. Connect Microsoft Teams in "
+            "[your Open SWE settings](https://openswe.example/my-settings/connections), "
+            "then message me again.",
+            id="unlinked",
+        ),
+    ],
+)
+async def test_teams_webhook_greets_the_linked_account_without_blocking_the_event_loop(
+    monkeypatch: pytest.MonkeyPatch, sender_object_id: str, reply: str
 ) -> None:
+    alice = User(identities=[UserIdentity(provider="github", external_id="1", login="alice")])
+
+    async def linked_user(provider: str, external_id: str) -> User | None:
+        return alice if (provider, external_id) == ("microsoft", _ALICE_OBJECT_ID) else None
+
     replies: list[object] = []
 
     async def send_activity(_context: TurnContext, activity: object, *_: object) -> None:
         replies.append(activity)
 
+    monkeypatch.setenv("DASHBOARD_BASE_URL", "https://openswe.example")
     _verified_as_microsoft(monkeypatch, _TEAMS_SERVICE_URL)
+    monkeypatch.setattr(User, "for_identity", linked_user)
     monkeypatch.setattr(msal_auth, "ConfidentialClientApplication", _BlockingMsalClient)
     monkeypatch.setattr(TurnContext, "send_activity", send_activity)
 
     with langgraph_dev_blocking_checks():
-        response = await _post(_activity(_TEAMS_SERVICE_URL), "Bearer signed-by-microsoft")
+        response = await _post(
+            _activity(_TEAMS_SERVICE_URL, sender_object_id), "Bearer signed-by-microsoft"
+        )
 
     assert response.status_code == 202
-    assert replies == ["hi"]
+    assert replies == [reply]

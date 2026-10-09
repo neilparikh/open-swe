@@ -1,11 +1,15 @@
-"""Teams direct messages start and continue agent runs.
+"""Teams messages start and continue agent runs.
 
-A 1:1 chat with the bot is one ongoing agent thread that runs as the person
-behind the linked Microsoft account; ``new`` or ``start over`` begins a fresh
-one. Channels and group chats only get a pointer to the direct message.
+A direct message with the bot is one ongoing agent thread, private to the
+person, until they type ``new`` or ``start over``. An @mention in a team channel
+runs in the agent thread of that Teams thread, which everyone can open, as Slack
+channel threads are. Every run acts as the linked person who sent the message;
+group chats only get a pointer.
 """
 
+import html
 import logging
+import re
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Literal, Self
@@ -33,10 +37,12 @@ _CLAIM_TTL = timedelta(hours=1)
 _START_OVER_COMMANDS = frozenset({"new", "start over"})
 _TITLE_MAX_CHARS = 80
 
-DIRECT_MESSAGE_ONLY = "I only take requests in a direct message for now. Message me there."
+_MENTION = re.compile(r"<at>(.*?)</at>", re.DOTALL)
+
+NOT_A_CHANNEL_OR_DIRECT_MESSAGE = "Mention me in a team channel or message me directly."
 STARTED_OVER = "Started a new conversation. What should I work on?"
 
-ConversationKind = Literal["direct", "other"]
+ConversationKind = Literal["direct", "channel", "other"]
 
 
 @dataclass(frozen=True)
@@ -53,25 +59,34 @@ class TeamsMessage:
         conversation = activity.conversation
         sender = activity.from_property
         conversation_type = (conversation.conversation_type if conversation else None) or ""
-        kind: ConversationKind = "direct" if conversation_type == "personal" else "other"
+        kind: ConversationKind = (
+            "direct"
+            if conversation_type == "personal"
+            else "channel"
+            if conversation_type == "channel"
+            else "other"
+        )
         sender_object_id = (sender.aad_object_id if sender is not None else None) or ""
         reference = TeamsConversationRef(
             service_url=activity.service_url or "",
             conversation_id=conversation.id if conversation is not None else "",
+            conversation_type=conversation_type,
             tenant_id=(conversation.tenant_id if conversation is not None else None) or "",
             bot_id=activity.recipient.id if activity.recipient is not None else "",
             user_id=sender.id if sender is not None else "",
             user_aad_object_id=sender_object_id,
         )
-        return cls(kind, reference, (activity.text or "").strip(), sender_object_id)
+        return cls(kind, reference, _plain_text(activity.text or ""), sender_object_id)
 
     @property
     def starts_over(self) -> bool:
-        return self.text.lower() in _START_OVER_COMMANDS
+        """A channel thread is its Teams thread; only a direct message can start over."""
+        return self.kind == "direct" and self.text.lower() in _START_OVER_COMMANDS
 
     async def start_run(self, conversation: TeamsConversation, user: User, login: str) -> None:
         """Run this message in the conversation's thread, as ``user``."""
         thread_id = conversation.thread_id
+        direct = self.kind == "direct"
         client = langgraph_client()
         metadata = await _existing_metadata(client, thread_id)
         thread_repo = common.repo_config_from_thread({"metadata": metadata}) if metadata else None
@@ -96,7 +111,8 @@ class TeamsMessage:
             title="" if metadata else _title(self.text),
             source_context=SourceContext(teams_conversation=self.reference),
             workspace=workspace,
-            visibility="private",
+            # A channel thread is collaborative, as Slack channel threads are.
+            visibility="private" if direct else "public",
             owner_login=login,
         )
         if not persisted:
@@ -110,10 +126,11 @@ class TeamsMessage:
             "workspace": workspace,
             "environment": workspace,
             "teams_conversation": self.reference.dump(),
+        }
+        if direct:
             # A direct message reaches exactly one person; the agent still rechecks
             # them against the configured admins before handing out admin tools.
-            "admin_thread": True,
-        }
+            configurable["admin_thread"] = True
         if repo:
             configurable["repo"] = repo
         sender_id = user.as_person({"id": f"github:{login}", "github_login": login})["id"]
@@ -122,6 +139,7 @@ class TeamsMessage:
                 self.text, {"sender_id": sender_id, "surface": "teams", "kind": "human"}
             )
         }
+        # Every message that reaches the bot is addressed to it, so it interrupts.
         run = await common.dispatch_agent_run(
             thread_id,
             None,
@@ -134,8 +152,12 @@ class TeamsMessage:
             multitask_strategy="interrupt",
         )
         logger.info(
-            "Dispatched a run for a Teams direct message",
-            extra={"agent_thread_id": thread_id, "agent_run_id": common.run_id_for_logging(run)},
+            "Dispatched a run for a Teams message",
+            extra={
+                "agent_thread_id": thread_id,
+                "agent_run_id": common.run_id_for_logging(run),
+                "teams_conversation_kind": self.kind,
+            },
         )
 
 
@@ -158,7 +180,7 @@ async def handle_message(context: TurnContext, _state: TurnState) -> None:
 async def _handle(context: TurnContext) -> None:
     message = TeamsMessage.parse(context.activity)
     if message.kind == "other":
-        await context.send_activity(DIRECT_MESSAGE_ONLY)
+        await context.send_activity(NOT_A_CHANNEL_OR_DIRECT_MESSAGE)
         return
 
     user = (
@@ -182,7 +204,9 @@ async def _handle(context: TurnContext) -> None:
         return
     if not message.text:
         return
-    await context.send_activity(Activity(type=ActivityTypes.typing))
+    if message.kind == "direct":
+        # Teams shows typing in chats only, not in channel threads.
+        await context.send_activity(Activity(type=ActivityTypes.typing))
     await message.start_run(conversation, user, login)
 
 
@@ -209,6 +233,14 @@ async def _has_github_token(login: str) -> bool:
             exc_info=True,
         )
         return False
+
+
+def _plain_text(text: str) -> str:
+    """Teams message text as the agent reads it: other mentions as ``@Name``, entities decoded.
+
+    The SDK has already removed the mention of the bot itself.
+    """
+    return html.unescape(_MENTION.sub(r"@\1", text)).strip()
 
 
 def _title(text: str) -> str:

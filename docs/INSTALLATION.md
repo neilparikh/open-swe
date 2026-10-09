@@ -392,7 +392,11 @@ Open SWE listens for Linear comments that mention `@openswe`.
 <details id="microsoft-teams">
 <summary><strong>Microsoft Teams (preview)</strong></summary>
 
-Open SWE answers direct messages in Microsoft Teams (preview). A direct message with the bot is one ongoing agent thread, private to the person, that runs as their linked GitHub account; a message sent while it works interrupts with the new request, and `new` or `start over` begins a fresh thread. Channels and group chats are not supported yet: the bot asks to be messaged directly.
+Open SWE answers direct messages and channel @mentions in Microsoft Teams (preview). Every run acts as the linked GitHub account of the person who sent the message, and a message sent while a run works interrupts it with the new request.
+
+- **Direct messages:** the whole chat with the bot is one ongoing agent thread, private to the person; `new` or `start over` begins a fresh thread.
+- **Channels:** an @mention starts or continues the agent thread of that Teams thread, and the agent replies in it. Channel threads are visible to every Open SWE user, like Slack channel threads. Only messages that @mention the bot reach the agent, so follow-ups mention it again. The bot works in standard channels; the app does not opt in to shared or private channels, which can include people from other organizations.
+- Group chats are not supported yet: the bot asks to be mentioned in a channel or messaged directly.
 
 1. In the Azure portal, **Create a resource → Azure Bot**. Choose **Single Tenant** as the type of app, with a new Microsoft App ID; the free F0 tier is enough.
 2. In the bot's **Settings → Configuration**, set **Messaging endpoint** to `<URL>/webhooks/teams`. Save **Microsoft App ID** as `TEAMS_CLIENT_ID` and **App Tenant ID** as `TEAMS_TENANT_ID`. **Manage**, next to the app id, opens the app registration; under **Certificates & secrets**, create a client secret and save its value as `TEAMS_CLIENT_SECRET`.
@@ -400,12 +404,13 @@ Open SWE answers direct messages in Microsoft Teams (preview). A direct message 
 4. In the same app registration, under **Authentication → Add a platform → Web**, add the redirect URI `<URL>/dashboard/api/microsoft/callback` (locally, `http://localhost:2024/dashboard/api/microsoft/callback`). Sign in with Microsoft uses it to link each person's Microsoft account; if your tenant restricts user consent, an admin grants consent for `openid` and `profile` once.
 5. From a checkout with `TEAMS_CLIENT_ID` in `.env`, run `make teams-package` (add `TEAMS_APP_NAME=open-swe-<you>` for a personal bot). It writes `dist/open-swe-teams.zip`.
 6. In Teams, **Apps → Manage your apps → Upload an app → Upload a custom app** and choose the zip. Your tenant's app setup policy must allow uploading custom apps; otherwise a Teams admin uploads it under **Teams apps → Manage apps**.
+7. To use it in channels, add the app to a team: open it under **Apps** and choose **Add to a team**.
 
 Deliveries are accepted only with a Bot Framework token issued for `TEAMS_CLIENT_ID`, and replies only go to Microsoft's own service URLs. With any of the three variables unset, `/webhooks/teams` answers 503 and the Microsoft Teams connection is hidden.
 
 Each person links their account under **Settings → Connections → Microsoft Teams**. The link is the Entra object id from a verified Microsoft sign in, the same id Teams sends with every message; only accounts in `TEAMS_TENANT_ID` can link, and no email is stored from it. Runs need the person's GitHub sign-in to be current, as in Slack. The agent answers through its `teams_reply` tool; failure replies for runs that die also reach Teams when `RUN_COMPLETE_WEBHOOK_SECRET` and `COMPLETION_WEBHOOK_URL` are set.
 
-**Verify:** send the bot a direct message; it asks you to connect your account. Connect Microsoft Teams in your settings and message it again with a request such as `what's in the repo?`: it shows typing, replies with a short progress note, then the answer, and the dashboard lists a private thread. Send `new` to start over. Installing and removing the app are logged.
+**Verify:** send the bot a direct message; it asks you to connect your account. Connect Microsoft Teams in your settings and message it again with a request such as `what's in the repo?`: it shows typing, replies with a short progress note, then the answer, and the dashboard lists a private thread. Send `new` to start over. In a standard channel of a team the app was added to, post `@<bot name> what's in the repo?`: the agent replies in that post's thread, and the dashboard lists a public thread. Installing and removing the app are logged.
 
 </details>
 

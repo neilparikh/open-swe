@@ -74,14 +74,18 @@ class LinearIssueRef(BaseModel):
 class TeamsConversationRef(BaseModel):
     """Where to post into the Teams conversation a thread belongs to.
 
-    Refreshed on every inbound message: Bot Framework may move a conversation to
-    another ``service_url``, and replies must follow it.
+    ``conversation_id`` is a direct message or, for a channel, one Teams thread
+    (``…;messageid=<root>``). Each run carries the reference from the message
+    that started it, so replies follow a conversation Bot Framework moved to
+    another ``service_url``; thread metadata keeps the first message's copy.
     """
 
     model_config = ConfigDict(extra="allow")
 
     service_url: str = ""
     conversation_id: str = ""
+    # "personal" for a direct message, "channel" for a channel thread.
+    conversation_type: str = ""
     tenant_id: str = ""
     bot_id: str = ""
     user_id: str = ""

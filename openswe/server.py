@@ -803,6 +803,15 @@ def _initial_reply_surface(cfg: RunConfig) -> ReplySurface:
     return SLACK_REPLY_SURFACE
 
 
+def _teams_channel_run(cfg: RunConfig) -> bool:
+    """Whether this run answers an @mention in a Teams channel thread."""
+    return (
+        _teams_tools_enabled(cfg)
+        and cfg.teams_conversation is not None
+        and cfg.teams_conversation.conversation_type == "channel"
+    )
+
+
 def _teams_tools_enabled(cfg: RunConfig) -> bool:
     """Whether the run answers a Teams conversation it has a trusted reference to.
 
@@ -1349,6 +1358,7 @@ class PrepareAgentRunMiddleware(BasePrepareRunMiddleware):
                 slack_ask=_slack_ask_mode(cfg),
                 slack_by_the_way=_slack_ask_mode(cfg) and bool(cfg.slack_by_the_way_thread_ts),
                 slack_breakout=cfg.slack_breakout is True,
+                teams_channel=_teams_channel_run(cfg),
                 slack_follow_up_suggestions=_slack_concierge_run(cfg)
                 or (await cached_workspace_settings(workspace_slug(cfg))).get(
                     "slack_follow_up_suggestions"

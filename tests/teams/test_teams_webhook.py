@@ -35,6 +35,7 @@ _TENANT_ID = "0b9f1e2d-7c6a-4f5e-8d3c-2b1a09f8e7d6"
 _TEAMS_SERVICE_URL = "https://smba.trafficmanager.net/amer/"
 _ALICE_OBJECT_ID = "alice-object-id"
 _DIRECT_MESSAGE = "a:alice-and-the-bot"
+_CHANNEL = "19:engineering@thread.tacv2"
 
 
 @pytest.fixture(autouse=True)
@@ -126,6 +127,7 @@ def _activity_json(
     service_url: str = _TEAMS_SERVICE_URL,
     sender_object_id: str = _ALICE_OBJECT_ID,
     conversation_type: str = "personal",
+    conversation_id: str = _DIRECT_MESSAGE,
 ) -> dict[str, Any]:
     return {
         "type": "message",
@@ -135,7 +137,7 @@ def _activity_json(
         "from": {"id": "29:alice", "aadObjectId": sender_object_id},
         "recipient": {"id": f"28:{_CLIENT_ID}"},
         "conversation": {
-            "id": _DIRECT_MESSAGE,
+            "id": conversation_id,
             "tenantId": _TENANT_ID,
             "conversationType": conversation_type,
         },
@@ -253,6 +255,7 @@ async def test_a_linked_direct_message_runs_privately_in_one_ongoing_thread(
         TeamsConversationRef(
             service_url=_TEAMS_SERVICE_URL,
             conversation_id=_DIRECT_MESSAGE,
+            conversation_type="personal",
             tenant_id=_TENANT_ID,
             bot_id=f"28:{_CLIENT_ID}",
             user_id="29:alice",
@@ -303,14 +306,16 @@ async def test_starting_over_stops_the_run_and_moves_to_a_new_thread(platform: P
 @pytest.mark.parametrize(
     ("fields", "token", "reply"),
     [
-        pytest.param({"conversation_type": "channel"}, "gho_alice", "direct message", id="channel"),
+        pytest.param(
+            {"conversation_type": "groupChat"}, "gho_alice", "team channel", id="group-chat"
+        ),
         pytest.param(
             {"sender_object_id": "someone-else"}, "gho_alice", "who you are", id="unlinked"
         ),
         pytest.param({}, None, "sign-in has expired", id="no-github-token"),
     ],
 )
-async def test_only_linked_direct_messages_start_runs(
+async def test_only_linked_people_in_direct_messages_and_channels_start_runs(
     platform: Platform,
     monkeypatch: pytest.MonkeyPatch,
     fields: dict[str, str],
@@ -355,3 +360,40 @@ async def test_replies_never_leave_microsofts_bot_framework_hosts(
             "hi",
         )
     assert token_clients == []
+
+
+def _channel_message(root: str, **fields: Any) -> dict[str, Any]:
+    return {
+        "conversation_type": "channel",
+        "conversation_id": f"{_CHANNEL};messageid={root}",
+        **fields,
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_channel_mention_runs_publicly_in_its_teams_thread(platform: Platform) -> None:
+    mention = await _message(
+        **_channel_message("100", activity_id="100", text="<at>Bob</at> needs the build log")
+    )
+    await _message(**_channel_message("100", activity_id="101", text="and the tests?"))
+    await _message(**_channel_message("200", activity_id="200", text="a different post"))
+
+    assert _dispatched_thread(platform, 0) == _dispatched_thread(platform, 1)
+    assert _dispatched_thread(platform, 2) != _dispatched_thread(platform, 0)
+    first = platform.dispatch.await_args_list[0]
+    configurable = first.args[2]
+    assert "admin_thread" not in configurable
+    assert configurable["teams_conversation"]["conversation_type"] == "channel"
+    assert "@Bob needs the build log" in str(first.kwargs["input"]["messages"][-1]["content"])
+    written = platform.upsert.await_args_list[0].kwargs
+    assert (written["visibility"], written["owner_login"]) == ("public", "alice")
+    assert mention.sent == [], "a channel thread gets no typing indicator"
+
+
+@pytest.mark.asyncio
+async def test_start_over_in_a_channel_is_an_ordinary_request(platform: Platform) -> None:
+    context = await _message(**_channel_message("100", text="start over"))
+
+    platform.cancel.assert_not_awaited()
+    platform.dispatch.assert_awaited_once()
+    assert context.texts == []

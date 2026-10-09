@@ -1,4 +1,4 @@
-.PHONY: all format format-check lint typecheck test tests integration_tests help run dev dev-ui postgres migration tunnel web build-dashboard desktop install-desktop install-checkout swagger cli
+.PHONY: all format format-check lint typecheck test tests integration_tests help run dev dev-ui postgres migration tunnel web build-dashboard desktop install-desktop install-checkout swagger cli teams-package
 
 # Default target executed when no arguments are given to make.
 all: help
@@ -43,6 +43,14 @@ tunnel:
 	@test -n "$(NGROK_DOMAIN)" || { echo 'Set NGROK_DOMAIN=<your-domain>.ngrok-free.dev (claim it under Domains at https://dashboard.ngrok.com)' >&2; exit 1; }
 	$(eval DOMAIN := $(shell DOMAIN="$(NGROK_DOMAIN)"; DOMAIN="$${DOMAIN#https://}"; DOMAIN="$${DOMAIN#http://}"; echo "$${DOMAIN%/}"))
 	ngrok http 2024 --url https://$(DOMAIN) --traffic-policy-file examples/ngrok/webhooks-only.yml
+
+# Microsoft Teams app package for the bot (docs/INSTALLATION.md, Microsoft Teams). The client id
+# comes from .env unless given on the command line; TEAMS_APP_NAME names a personal bot.
+TEAMS_CLIENT_ID ?= $(shell sh scripts/dotenv_value.sh .env TEAMS_CLIENT_ID)
+TEAMS_APP_NAME ?= Open SWE
+teams-package:
+	@test -n "$(TEAMS_CLIENT_ID)" || { echo 'Set TEAMS_CLIENT_ID in .env (or pass TEAMS_CLIENT_ID=<app id>)' >&2; exit 1; }
+	uv run python scripts/teams_app_package.py --client-id "$(TEAMS_CLIENT_ID)" --name "$(TEAMS_APP_NAME)"
 
 # Build the dashboard into ui/.output/public; `make dev` then serves it at /.
 # With a LangGraph http.mount_prefix, pass DASHBOARD_BASE_PATH=<prefix>/ so the
@@ -139,6 +147,7 @@ help:
 	@echo 'migration m="..."            - create the next database migration'
 	@echo 'web                          - run the dashboard web server'
 	@echo 'tunnel                       - ngrok tunnel to :2024 on NGROK_DOMAIN, webhooks only (any other tunnel works too)'
+	@echo 'teams-package                - zip the Microsoft Teams app package into dist/ for TEAMS_CLIENT_ID'
 	@echo 'run                          - run webhook server'
 	@echo 'swagger                      - regenerate swagger.json from the backend routes'
 	@echo 'desktop                      - run the Electron desktop app (backend must be running)'

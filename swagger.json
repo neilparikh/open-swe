@@ -20946,6 +20946,44 @@
         },
         "summary": "Slack Interactivity"
       }
+    },
+    "/webhooks/teams": {
+      "get": {
+        "description": "Health check for the Microsoft Teams messaging endpoint.",
+        "operationId": "teams_webhook_verify_webhooks_teams_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Teams Webhook Verify Webhooks Teams Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Teams Webhook Verify"
+      },
+      "post": {
+        "description": "Handle Bot Framework activities that Microsoft Teams delivers to the bot.",
+        "operationId": "teams_webhook_webhooks_teams_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Teams Webhook"
+      }
     }
   }
 }

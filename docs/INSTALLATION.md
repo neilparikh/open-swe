@@ -389,6 +389,23 @@ Open SWE listens for Linear comments that mention `@openswe`.
 
 </details>
 
+<details id="microsoft-teams">
+<summary><strong>Microsoft Teams (preview)</strong></summary>
+
+The Teams bot is a preview of the installation and authentication plumbing: it answers every message with `hi` and does not start runs yet.
+
+1. In the Azure portal, **Create a resource → Azure Bot**. Choose **Single Tenant** as the type of app, with a new Microsoft App ID; the free F0 tier is enough.
+2. In the bot's **Settings → Configuration**, set **Messaging endpoint** to `<URL>/webhooks/teams`. Save **Microsoft App ID** as `TEAMS_CLIENT_ID` and **App Tenant ID** as `TEAMS_TENANT_ID`. **Manage**, next to the app id, opens the app registration; under **Certificates & secrets**, create a client secret and save its value as `TEAMS_CLIENT_SECRET`.
+3. In **Settings → Channels**, add **Microsoft Teams**.
+4. From a checkout with `TEAMS_CLIENT_ID` in `.env`, run `make teams-package` (add `TEAMS_APP_NAME=open-swe-<you>` for a personal bot). It writes `dist/open-swe-teams.zip`.
+5. In Teams, **Apps → Manage your apps → Upload an app → Upload a custom app** and choose the zip. Your tenant's app setup policy must allow uploading custom apps; otherwise a Teams admin uploads it under **Teams apps → Manage apps**.
+
+Deliveries are accepted only with a Bot Framework token issued for `TEAMS_CLIENT_ID`, and replies only go to Microsoft's own service URLs. With any of the three variables unset, `/webhooks/teams` answers 503.
+
+**Verify:** send the bot a direct message, or `@`-mention it in a team channel; it replies `hi`. Installing and removing the app are logged.
+
+</details>
+
 <details id="dashboard-on-its-own-origin">
 <summary><strong>Dashboard on its own origin (separate frontend deployment)</strong></summary>
 

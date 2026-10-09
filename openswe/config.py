@@ -288,6 +288,15 @@ ENV.var(
 ENV.var("SLACK_APP_ID", "Slack app id (A...) whose event deliveries Incidents accepts.")
 ENV.var("LINEAR_WEBHOOK_SECRET", "HMAC secret for Linear webhook deliveries.", secret=True)
 
+# --- Microsoft Teams ------------------------------------------------------------------------
+ENV.var(
+    "TEAMS_CLIENT_ID",
+    "Microsoft Entra application (client) id of the Teams bot; Bot Framework tokens must name "
+    "it as their audience.",
+)
+ENV.var("TEAMS_CLIENT_SECRET", "Client secret of the Teams bot's Entra app.", secret=True)
+ENV.var("TEAMS_TENANT_ID", "Microsoft Entra tenant id the single-tenant Teams bot belongs to.")
+
 # --- Dashboard ------------------------------------------------------------------------------
 ENV.var(
     "DASHBOARD_BASE_URL",

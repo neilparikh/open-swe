@@ -1,0 +1,34 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.19/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.19",
+  "version": "0.1.0",
+  "id": "TEAMS_CLIENT_ID",
+  "developer": {
+    "name": "Open SWE",
+    "websiteUrl": "https://github.com/langchain-ai/open-swe",
+    "privacyUrl": "https://github.com/langchain-ai/open-swe/blob/main/SECURITY.md",
+    "termsOfUseUrl": "https://github.com/langchain-ai/open-swe/blob/main/LICENSE"
+  },
+  "name": {
+    "short": "Open SWE",
+    "full": "Open SWE"
+  },
+  "description": {
+    "short": "Open SWE, the asynchronous coding agent.",
+    "full": "Open SWE is an asynchronous coding agent. Message it directly or mention it in a channel."
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#7FC6FF",
+  "bots": [
+    {
+      "botId": "TEAMS_CLIENT_ID",
+      "scopes": ["personal", "team", "groupChat"],
+      "supportsFiles": false,
+      "isNotificationOnly": false
+    }
+  ],
+  "validDomains": []
+}

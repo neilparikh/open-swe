@@ -1,6 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router"
+import { Switch } from "@langchain/macaw-components/Switch"
 
-import { SettingsPage, SettingsSection } from "@/components/AppShell"
+import {
+  SettingsPage,
+  SettingsRow,
+  SettingsSection,
+} from "@/components/AppShell"
 import { ConnectionsSection } from "@/features/settings/components/ConnectionsSection"
 import { MCPConnectionsSection } from "@/features/settings/components/MCPConnectionsSection"
 import { ManagedToolsSection } from "@/features/settings/components/ManagedToolsSection"
@@ -39,6 +44,25 @@ function ConnectionsPage() {
               description="Add ❌ to watched pull request posts when checks fail on a pull request you own."
             />
           </SettingsSection>
+          {user.microsoft_oauth_enabled && (
+            <SettingsSection title="Microsoft Teams">
+              <SettingsRow
+                label="Concierge mode"
+                htmlFor="teams_concierge_mode"
+                badge="Always on"
+                description="Your whole DM with Open SWE in Teams is one private thread it always answers in. This can't be turned off: Teams chats have no reply threads to start a new one per message, so send “new” or “start over” to begin a fresh thread instead."
+                control={
+                  <Switch
+                    id="teams_concierge_mode"
+                    aria-label="Concierge mode"
+                    checked
+                    disabled
+                    onChange={() => undefined}
+                  />
+                }
+              />
+            </SettingsSection>
+          )}
           <MCPConnectionsSection scope="user" />
         </>
       )}

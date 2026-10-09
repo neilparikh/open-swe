@@ -1,6 +1,6 @@
 # Files
 
-- [Authentication, Authorization, and Secret Boundaries](auth-and-security.md) - How Open SWE authenticates dashboard and automation users, resolves GitHub authority, verifies inbound requests, encrypts stored credentials, and keeps secrets out of sandboxes.
-- [Models, Profiles, and Instructions](models-profiles-instructions.md) - Model and reasoning selection, fallback, gateway construction, and the team, profile, and thread layers that govern agent runs. Explains how repository, environment, and sender instructions are persisted and placed into prompts.
-- [Threads, Durable Runs, and State](threads-and-state.md) - How Open SWE identifies durable LangGraph conversations, constructs follow-up inputs, owns thread metadata and Store records, and preserves sandbox continuity across product surfaces.
-- [Tool Catalog and Authorization](tools.md) - How Open SWE exports curated tools, wires graph-specific and deferred tool surfaces, and enforces authorization and plan-mode controls. Use this page when safely adding or changing an agent capability.
+- [Authentication, authorization, and credential scope](auth-and-security.md) - How Open SWE authenticates dashboard users and inbound requests, chooses GitHub authority, scopes sandbox credentials, and protects persisted secrets.
+- [Models, profiles, settings, and instructions](models-profiles-instructions.md) - How Open SWE resolves models and reasoning effort from deployment, instance, workspace, profile, thread, and runtime layers, then constructs provider clients. Covers persisted settings, routing and fallback, and the scoped instruction sources used to compose an agent prompt.
+- [Threads, durable runs, and persistent state](threads-and-state.md) - How Open SWE identifies LangGraph threads, dispatches checkpointed runs, normalizes follow-up input, and separates LangGraph, PostgreSQL, Store, user, workspace, task, and transcript state.
+- [Tool capability model](tools.md) - How Open SWE assembles graph-specific tool surfaces, loads MCP tools on demand, scopes credentials, and enforces access and safety gates. Use this page when adding a capability or changing its availability.

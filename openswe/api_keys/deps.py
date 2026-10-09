@@ -11,6 +11,7 @@ from openswe.audit_logs.middleware import bind_actor
 from openswe.audit_logs.models import AuditLogEnrichments
 from openswe.dashboard.deps import ADMIN_DEP
 from openswe.database import postgres
+from openswe.utils.http import bearer_token
 
 logger = logging.getLogger(__name__)
 
@@ -68,8 +69,8 @@ async def api_key_from_token(token: str) -> ApiKey | None:
 
 async def require_api_key(request: Request) -> ApiKey:
     _require_database()
-    scheme, _, token = request.headers.get("Authorization", "").partition(" ")
-    if scheme.lower() != "bearer" or not token.strip():
+    token = bearer_token(request)
+    if not token:
         raise HTTPException(401, _INVALID_KEY, headers={"WWW-Authenticate": "Bearer"})
     key = await api_key_from_token(token)
     if key is None:

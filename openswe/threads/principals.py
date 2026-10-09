@@ -35,6 +35,7 @@ from openswe.federation.github_oidc import (
     verify,
 )
 from openswe.threads.summary import _assert_thread_postable, assert_thread_readable
+from openswe.utils.http import bearer_token
 from openswe.utils.json_types import JsonObject
 from openswe.workspaces.store import WORKSPACES
 
@@ -155,11 +156,6 @@ class Principal:
             raise HTTPException(404, "thread not found")
 
 
-def _bearer(request: Request) -> str:
-    scheme, _, token = request.headers.get("Authorization", "").partition(" ")
-    return token.strip() if scheme.strip().lower() == "bearer" else ""
-
-
 async def _federated_principal(token: str) -> Principal:
     """The workflow behind a GitHub token, if a workspace lets that repository in."""
     try:
@@ -193,7 +189,7 @@ async def require_principal(request: Request) -> Principal:
     A bearer token is matched against the API keys first and only then checked
     as GitHub's, so nothing is verified against keys it was not minted for.
     """
-    token = _bearer(request)
+    token = bearer_token(request)
     if token:
         key = await api_key_from_token(token)
         if key is not None:

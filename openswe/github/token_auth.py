@@ -7,11 +7,9 @@ is exempt from the CSRF origin check.
 
 from fastapi import Request
 
+from openswe.utils.http import bearer_token
+
 
 def bearer_github_token(request: Request) -> str | None:
     """Return the ``Authorization: Bearer`` token, if the request carries one."""
-    header = request.headers.get("authorization", "")
-    scheme, _, value = header.partition(" ")
-    if scheme.strip().lower() != "bearer":
-        return None
-    return value.strip() or None
+    return bearer_token(request) or None

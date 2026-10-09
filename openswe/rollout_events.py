@@ -20,6 +20,7 @@ from openswe.federation.github_oidc import GitHubActionsClaims, InvalidFederated
 from openswe.federation.github_oidc import verify as verify_github_oidc
 from openswe.github.repositories import Repository
 from openswe.source_context import SourceContext
+from openswe.utils.http import bearer_token
 from openswe.webhooks.event_log import EventLog, EventRefs
 from openswe.webhooks.event_subscriptions import EventSubscription
 from openswe.workspaces.routing import workspace_for_repo
@@ -92,13 +93,6 @@ class RolloutEvent(BaseModel):
         return cls(target=target.strip().lower(), commits=kept)
 
 
-def _bearer(header: str) -> str:
-    scheme, _, token = header.strip().partition(" ")
-    if scheme.lower() != "bearer" or not token.strip():
-        return ""
-    return token.strip()
-
-
 def _stored_body(target: str, commits: list[str]) -> bytes:
     """The payload subscriptions match: lowercase full SHAs, capped and deduped."""
     return json.dumps(
@@ -164,9 +158,9 @@ def _already_listening(subscriptions: list[EventSubscription], sha: str) -> bool
     return False
 
 
-async def _authorize(header: str) -> GitHubActionsClaims:
+async def _authorize(request: Request) -> GitHubActionsClaims:
     """A verified workflow whose repository may already start threads."""
-    token = _bearer(header)
+    token = bearer_token(request)
     if not token:
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
@@ -263,7 +257,7 @@ async def subscribe_merged_thread(
 @router.post("/webhooks/rollout")
 async def rollout_webhook(request: Request) -> RolloutAccepted:
     """Verify a deployment event, record it, and acknowledge it."""
-    claims = await _authorize(request.headers.get("Authorization", ""))
+    claims = await _authorize(request)
     body = await request.body()
     try:
         payload = json.loads(body)

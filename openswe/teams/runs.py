@@ -83,8 +83,9 @@ class TeamsMessage:
         """A channel thread is its Teams thread; only a direct message can start over."""
         return self.kind == "direct" and self.text.lower() in _START_OVER_COMMANDS
 
-    async def start_run(self, conversation: TeamsConversation, user: User, login: str) -> None:
+    async def start_run(self, conversation: TeamsConversation, user: User) -> None:
         """Run this message in the conversation's thread, as ``user``."""
+        login = user.github_login
         thread_id = conversation.thread_id
         direct = self.kind == "direct"
         client = langgraph_client()
@@ -177,23 +178,37 @@ async def handle_message(context: TurnContext, _state: TurnState) -> None:
         raise
 
 
-async def _handle(context: TurnContext) -> None:
-    message = TeamsMessage.parse(context.activity)
-    if message.kind == "other":
-        await context.send_activity(NOT_A_CHANNEL_OR_DIRECT_MESSAGE)
-        return
+class SenderNotReady(Exception):
+    """The sender cannot start a run yet; ``prompt`` tells them what to do about it."""
 
+    def __init__(self, prompt: str) -> None:
+        super().__init__(prompt)
+        self.prompt = prompt
+
+
+async def _linked_sender(message: TeamsMessage) -> User:
+    """The Open SWE user who sent ``message``, ready to run as."""
     user = (
         await User.for_identity("microsoft", message.sender_object_id)
         if message.sender_object_id
         else None
     )
     if user is None or not user.github_login:
-        await context.send_activity(_link_prompt())
+        raise SenderNotReady(_link_prompt())
+    if not await _has_github_token(user.github_login):
+        raise SenderNotReady(_sign_in_again_prompt())
+    return user
+
+
+async def _handle(context: TurnContext) -> None:
+    message = TeamsMessage.parse(context.activity)
+    if message.kind == "other":
+        await context.send_activity(NOT_A_CHANNEL_OR_DIRECT_MESSAGE)
         return
-    login = user.github_login
-    if not await _has_github_token(login):
-        await context.send_activity(_sign_in_again_prompt())
+    try:
+        user = await _linked_sender(message)
+    except SenderNotReady as exc:
+        await context.send_activity(exc.prompt)
         return
 
     conversation = await TeamsConversation.current(message.reference.conversation_id)
@@ -207,7 +222,7 @@ async def _handle(context: TurnContext) -> None:
     if message.kind == "direct":
         # Teams shows typing in chats only, not in channel threads.
         await context.send_activity(Activity(type=ActivityTypes.typing))
-    await message.start_run(conversation, user, login)
+    await message.start_run(conversation, user)
 
 
 async def _existing_metadata(client: LangGraphClient, thread_id: str) -> JsonObject | None:

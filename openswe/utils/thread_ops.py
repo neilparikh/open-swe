@@ -48,6 +48,45 @@ async def thread_run_error(thread_id: str, client: LangGraphClient | None = None
     return (failure.describe() or None) if failure else None
 
 
+_RUN_PAGE_SIZE = 100
+
+
+async def active_run_ids(thread_id: str, client: LangGraphClient | None = None) -> list[str]:
+    """Ids of the thread's pending and running runs."""
+    client = client or langgraph_client()
+    run_ids: set[str] = set()
+    for status in ("pending", "running"):
+        offset = 0
+        while True:
+            runs = await client.runs.list(
+                thread_id, status=status, limit=_RUN_PAGE_SIZE, offset=offset
+            )
+            for run in runs:
+                run_id = run.get("run_id") or run.get("id")
+                if isinstance(run_id, str) and run_id:
+                    run_ids.add(run_id)
+            if len(runs) < _RUN_PAGE_SIZE:
+                break
+            offset += len(runs)
+    return sorted(run_ids)
+
+
+async def cancel_active_runs(
+    thread_id: str, *, keep_run_id: str = "", client: LangGraphClient | None = None
+) -> list[str]:
+    """Interrupt the thread's pending and running runs, except ``keep_run_id``.
+
+    Returns the ids it interrupted.
+    """
+    client = client or langgraph_client()
+    run_ids = [
+        run_id for run_id in await active_run_ids(thread_id, client) if run_id != keep_run_id
+    ]
+    if run_ids:
+        await client.runs.cancel_many(thread_id=thread_id, run_ids=run_ids, action="interrupt")
+    return run_ids
+
+
 async def get_thread_active_status(thread_id: str) -> bool | None:
     """Return whether the thread is active, or None when status cannot be determined."""
     try:

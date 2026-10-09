@@ -86,7 +86,7 @@ from openswe.transcript.events import (
 )
 from openswe.transcript.turns import OpenTurn, recorded_turn_id
 from openswe.users import User
-from openswe.utils.dashboard_handoff import DASHBOARD_HANDOFF_BODY
+from openswe.utils.dashboard_handoff import chat_surface_of, dashboard_handoff_body
 from openswe.utils.json_types import JsonObject, as_thread_dict, thread_metadata
 from openswe.utils.thread_ops import langgraph_client, queue_message_for_thread
 from openswe.utils.thread_participants import participant_metadata
@@ -769,8 +769,8 @@ async def _attributed_run_messages(
         person["email"] = email
     sender_id = (await User.canonical_person(person))["id"]
     notices: list[tuple[SystemIdentity, str]] = []
-    if metadata.get("source") == "slack":
-        notices.append((_DASHBOARD_HANDOFF_SYSTEM, DASHBOARD_HANDOFF_BODY))
+    if (chat_surface := chat_surface_of(metadata.get("source"))) is not None:
+        notices.append((_DASHBOARD_HANDOFF_SYSTEM, dashboard_handoff_body(chat_surface)))
     if sandbox_handoff is not None:
         to_cloud = sandbox_handoff.get("sandbox_id") is None
         carried = sandbox_handoff.get(HANDOFF_FROM_KEY) is not None
@@ -1206,7 +1206,7 @@ async def steer_running_thread(
         "surface": "web",
         "created_at_ms": _now_ms(),
     }
-    if metadata.get("source") == "slack":
+    if chat_surface_of(metadata.get("source")) is not None:
         payload["source"] = DASHBOARD_SOURCE
     if not await queue_message_for_thread(thread_id, payload):
         raise HTTPException(502, "failed to deliver the follow-up to the running agent")

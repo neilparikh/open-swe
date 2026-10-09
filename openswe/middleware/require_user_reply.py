@@ -32,9 +32,11 @@ logger = logging.getLogger(__name__)
 # Tools that post a card as the turn's final Slack reply.
 _CARD_TOOLS = frozenset({"connect_managed_tools"})
 
+# A chat platform the agent answers through its reply tool; "web" is the dashboard stream.
+ChatSurface = Literal["slack"]
 ReplySurface = Literal["slack", "web"]
 
-SLACK_REPLY_SURFACE: ReplySurface = "slack"
+SLACK_REPLY_SURFACE: ChatSurface = "slack"
 WEB_REPLY_SURFACE: ReplySurface = "web"
 
 REPLY_GUARD: SystemIdentity = {
@@ -106,16 +108,20 @@ class RequireUserReplyMiddleware(OpenSWEMiddleware):
     def __init__(
         self,
         tool_name: str,
-        no_reply_tool_name: str,
+        no_reply_tool_name: str | None,
         *,
         initial_surface: ReplySurface,
+        chat_surface: ChatSurface = SLACK_REPLY_SURFACE,
         max_retries: int = 2,
         replies: frozenset[str] = frozenset(),
     ) -> None:
         super().__init__()
         self._tool_name = tool_name
+        # Optional: in a direct message every turn is addressed to the agent.
         self._no_reply_tool_name = no_reply_tool_name
         self._initial_surface = initial_surface
+        # The chat platform `tool_name` posts to; other surfaces owe nothing here.
+        self._chat_surface = chat_surface
         self._max_retries = max_retries
         # Other tools whose successful call answers the person, such as a walkthrough's chunk.
         self._replies = replies
@@ -128,7 +134,7 @@ class RequireUserReplyMiddleware(OpenSWEMiddleware):
     def _discharges_turn(self, call: Mapping[str, Any]) -> bool:
         name = call.get("name")
         if (
-            name == self._no_reply_tool_name
+            (self._no_reply_tool_name is not None and name == self._no_reply_tool_name)
             or name in self._replies
             or (self._tool_name == "slack_reply" and name in _CARD_TOOLS)
         ):
@@ -192,7 +198,7 @@ class RequireUserReplyMiddleware(OpenSWEMiddleware):
         last = messages[-1] if messages else None
         if not isinstance(last, AIMessage) or last.tool_calls:
             return None
-        if current_reply_surface(state) != SLACK_REPLY_SURFACE:
+        if current_reply_surface(state) != self._chat_surface:
             return None
         if self._satisfied(messages):
             return {"reply_nudges": 0}

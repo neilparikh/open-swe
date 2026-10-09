@@ -23,7 +23,6 @@ from openswe.input_messages import (
 )
 from openswe.message_queue import QueuedMessage
 from openswe.middleware.require_user_reply import (
-    SLACK_REPLY_SURFACE,
     WEB_REPLY_SURFACE,
     ReplySurface,
     ReplySurfaceState,
@@ -31,7 +30,7 @@ from openswe.middleware.require_user_reply import (
 )
 from openswe.middleware.trace import scrub_middleware_inputs
 from openswe.users import User
-from openswe.utils.dashboard_handoff import DASHBOARD_HANDOFF_BODY
+from openswe.utils.dashboard_handoff import chat_surface_of, dashboard_handoff_body
 from openswe.utils.http import DEFAULT_HTTP_TIMEOUT
 from openswe.utils.multimodal import fetch_image_block, vision_not_supported_warning
 
@@ -226,12 +225,12 @@ async def check_message_queue_before_model(  # noqa: PLR0911
                 # Only the move itself is worth announcing. Re-announcing it on
                 # every later web follow-up stacks identical handoff notices in
                 # the dashboard stream.
-                if surface == SLACK_REPLY_SURFACE:
+                if (chat_surface := chat_surface_of(surface)) is not None:
                     queued_updates.extend(
                         cast(
                             list[dict[str, Any]],
                             build_input_messages(
-                                DASHBOARD_HANDOFF_BODY,
+                                dashboard_handoff_body(chat_surface),
                                 {
                                     "sender_id": "system:dashboard-handoff",
                                     "surface": "automation",

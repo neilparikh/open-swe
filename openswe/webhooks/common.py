@@ -355,7 +355,7 @@ _GITHUB_BOT_MESSAGE_PREFIXES = (
 )
 
 
-def _extract_repo_config_from_thread(thread: ThreadLike) -> dict[str, str] | None:
+def repo_config_from_thread(thread: ThreadLike) -> dict[str, str] | None:
     """Extract repo config from persisted thread data."""
     thread = as_thread_dict(thread)
     metadata = thread.get("metadata")
@@ -753,7 +753,7 @@ async def get_slack_repo_config(
             langgraph_client, channel_id, thread_ts
         )
         thread = await langgraph_client.threads.get(resolved_thread_id)
-        thread_repo_config = _extract_repo_config_from_thread(thread)
+        thread_repo_config = repo_config_from_thread(thread)
         if thread_repo_config:
             repo_config = thread_repo_config
             explicit = True

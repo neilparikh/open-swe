@@ -20,6 +20,7 @@ from openswe.slack.client import (
 from openswe.slack.code_channels import CODE_CHANNEL_SESSION_TS, set_session_status
 from openswe.slack.events import claim_slack_event
 from openswe.source_context import SourceContext
+from openswe.utils.thread_ops import cancel_active_runs
 
 logger = logging.getLogger(__name__)
 
@@ -80,22 +81,6 @@ async def _resolve_stop_target(
         )
         return None
     return thread_id, thread_ts, metadata, slack_thread
-
-
-async def _active_run_ids(client: LangGraphClient, thread_id: str) -> list[str]:
-    run_ids: set[str] = set()
-    for status in ("pending", "running"):
-        offset = 0
-        while True:
-            runs = await client.runs.list(thread_id, status=status, limit=100, offset=offset)
-            for run in runs:
-                run_id = _mapping_value(run, "run_id") or _mapping_value(run, "id")
-                if isinstance(run_id, str) and run_id:
-                    run_ids.add(run_id)
-            if len(runs) < 100:
-                break
-            offset += len(runs)
-    return sorted(run_ids)
 
 
 def _summary_configurable(
@@ -170,13 +155,7 @@ async def _process_slack_stop_reaction(event: dict[str, Any], event_id: str) -> 
         return
 
     thread_id, thread_ts, metadata, slack_thread = target
-    run_ids = await _active_run_ids(client, thread_id)
-    if run_ids:
-        await client.runs.cancel_many(
-            thread_id=thread_id,
-            run_ids=run_ids,
-            action="interrupt",
-        )
+    run_ids = await cancel_active_runs(thread_id, client=client)
     await QueuedMessage.clear(thread_id)
     await client.threads.update(
         thread_id=thread_id,
@@ -241,9 +220,7 @@ async def _process_agent_session_stopped(event: dict[str, Any], event_id: str) -
     if event_id and not await claim_slack_event(event_id):
         return
 
-    run_ids = await _active_run_ids(client, thread_id)
-    if run_ids:
-        await client.runs.cancel_many(thread_id=thread_id, run_ids=run_ids, action="interrupt")
+    await cancel_active_runs(thread_id, client=client)
     await QueuedMessage.clear(thread_id)
     await client.threads.update(
         thread_id=thread_id,

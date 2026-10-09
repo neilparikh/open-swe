@@ -6,8 +6,9 @@ one. Channels and group chats only get a pointer to the direct message.
 """
 
 import logging
+from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
+from typing import Any, Literal, Self
 
 from langgraph_sdk.client import LangGraphClient
 from microsoft_agents.activity import Activity, ActivityTypes
@@ -35,6 +36,108 @@ _TITLE_MAX_CHARS = 80
 DIRECT_MESSAGE_ONLY = "I only take requests in a direct message for now. Message me there."
 STARTED_OVER = "Started a new conversation. What should I work on?"
 
+ConversationKind = Literal["direct", "other"]
+
+
+@dataclass(frozen=True)
+class TeamsMessage:
+    """One inbound Teams message, as the run path needs it."""
+
+    kind: ConversationKind
+    reference: TeamsConversationRef
+    text: str
+    sender_object_id: str
+
+    @classmethod
+    def parse(cls, activity: Activity) -> Self:
+        conversation = activity.conversation
+        sender = activity.from_property
+        conversation_type = (conversation.conversation_type if conversation else None) or ""
+        kind: ConversationKind = "direct" if conversation_type == "personal" else "other"
+        sender_object_id = (sender.aad_object_id if sender is not None else None) or ""
+        reference = TeamsConversationRef(
+            service_url=activity.service_url or "",
+            conversation_id=conversation.id if conversation is not None else "",
+            tenant_id=(conversation.tenant_id if conversation is not None else None) or "",
+            bot_id=activity.recipient.id if activity.recipient is not None else "",
+            user_id=sender.id if sender is not None else "",
+            user_aad_object_id=sender_object_id,
+        )
+        return cls(kind, reference, (activity.text or "").strip(), sender_object_id)
+
+    @property
+    def starts_over(self) -> bool:
+        return self.text.lower() in _START_OVER_COMMANDS
+
+    async def start_run(self, conversation: TeamsConversation, user: User, login: str) -> None:
+        """Run this message in the conversation's thread, as ``user``."""
+        thread_id = conversation.thread_id
+        client = langgraph_client()
+        metadata = await _existing_metadata(client, thread_id)
+        thread_repo = common.repo_config_from_thread({"metadata": metadata}) if metadata else None
+        repo = (
+            thread_repo
+            or await common.get_profile_default_repo(login)
+            or (await common.get_workspace_settings()).default_repo
+        )
+        workspace = (
+            await resolve_workspace(
+                thread_workspace=thread_workspace(metadata) if metadata else None,
+                repo=(thread_repo["owner"], thread_repo["name"]) if thread_repo else None,
+                login=login,
+            )
+        ).slug
+        persisted = await common.upsert_agent_thread_metadata(
+            thread_id,
+            source="teams",
+            repo_config=repo,
+            github_login=login,
+            user_email=user.email,
+            title="" if metadata else _title(self.text),
+            source_context=SourceContext(teams_conversation=self.reference),
+            workspace=workspace,
+            visibility="private",
+            owner_login=login,
+        )
+        if not persisted:
+            # Dispatch would create the thread itself, with no metadata and so public.
+            raise RuntimeError("could not persist thread authorization metadata")
+
+        configurable: dict[str, Any] = {
+            "source": "teams",
+            "github_login": login,
+            "user_email": user.email,
+            "workspace": workspace,
+            "environment": workspace,
+            "teams_conversation": self.reference.dump(),
+            # A direct message reaches exactly one person; the agent still rechecks
+            # them against the configured admins before handing out admin tools.
+            "admin_thread": True,
+        }
+        if repo:
+            configurable["repo"] = repo
+        sender_id = user.as_person({"id": f"github:{login}", "github_login": login})["id"]
+        run_input: RunInput = {
+            "messages": build_input_messages(
+                self.text, {"sender_id": sender_id, "surface": "teams", "kind": "human"}
+            )
+        }
+        run = await common.dispatch_agent_run(
+            thread_id,
+            None,
+            configurable,
+            source="teams",
+            thread_title=None,
+            input=run_input,
+            metadata=common.AGENT_VERSION_METADATA,
+            client=client,
+            multitask_strategy="interrupt",
+        )
+        logger.info(
+            "Dispatched a run for a Teams direct message",
+            extra={"agent_thread_id": thread_id, "agent_run_id": common.run_id_for_logging(run)},
+        )
+
 
 async def handle_message(context: TurnContext, _state: TurnState) -> None:
     """Answer one Teams message, exactly once even if Bot Framework redelivers it."""
@@ -53,15 +156,16 @@ async def handle_message(context: TurnContext, _state: TurnState) -> None:
 
 
 async def _handle(context: TurnContext) -> None:
-    activity = context.activity
-    conversation = activity.conversation
-    if conversation is None or conversation.conversation_type != "personal":
+    message = TeamsMessage.parse(context.activity)
+    if message.kind == "other":
         await context.send_activity(DIRECT_MESSAGE_ONLY)
         return
 
-    sender = activity.from_property
-    object_id = sender.aad_object_id if sender is not None else None
-    user = await User.for_identity("microsoft", object_id) if object_id else None
+    user = (
+        await User.for_identity("microsoft", message.sender_object_id)
+        if message.sender_object_id
+        else None
+    )
     if user is None or not user.github_login:
         await context.send_activity(_link_prompt())
         return
@@ -70,101 +174,16 @@ async def _handle(context: TurnContext) -> None:
         await context.send_activity(_sign_in_again_prompt())
         return
 
-    text = (activity.text or "").strip()
-    thread = await TeamsConversation.current(conversation.id)
-    if text.lower() in _START_OVER_COMMANDS:
-        await cancel_active_runs(thread.thread_id)
-        await thread.start_over()
+    conversation = await TeamsConversation.current(message.reference.conversation_id)
+    if message.starts_over:
+        await cancel_active_runs(conversation.thread_id)
+        await conversation.start_over()
         await context.send_activity(STARTED_OVER)
         return
-    if not text:
+    if not message.text:
         return
-
     await context.send_activity(Activity(type=ActivityTypes.typing))
-    reference = TeamsConversationRef(
-        service_url=activity.service_url or "",
-        conversation_id=conversation.id,
-        tenant_id=conversation.tenant_id or "",
-        bot_id=activity.recipient.id if activity.recipient is not None else "",
-        user_id=sender.id if sender is not None else "",
-        user_aad_object_id=object_id or "",
-    )
-    await _dispatch(thread, reference, user, login, text)
-
-
-async def _dispatch(
-    conversation: TeamsConversation,
-    reference: TeamsConversationRef,
-    user: User,
-    login: str,
-    text: str,
-) -> None:
-    thread_id = conversation.thread_id
-    client = langgraph_client()
-    metadata = await _existing_metadata(client, thread_id)
-    thread_repo = common.repo_config_from_thread({"metadata": metadata}) if metadata else None
-    repo = (
-        thread_repo
-        or await common.get_profile_default_repo(login)
-        or (await common.get_workspace_settings()).default_repo
-    )
-    workspace = (
-        await resolve_workspace(
-            thread_workspace=thread_workspace(metadata) if metadata else None,
-            repo=(thread_repo["owner"], thread_repo["name"]) if thread_repo else None,
-            login=login,
-        )
-    ).slug
-    persisted = await common.upsert_agent_thread_metadata(
-        thread_id,
-        source="teams",
-        repo_config=repo,
-        github_login=login,
-        user_email=user.email,
-        title="" if metadata else _title(text),
-        source_context=SourceContext(teams_conversation=reference),
-        workspace=workspace,
-        visibility="private",
-        owner_login=login,
-    )
-    if not persisted:
-        # Dispatch would create the thread itself, with no metadata and so public.
-        raise RuntimeError("could not persist thread authorization metadata")
-
-    configurable: dict[str, Any] = {
-        "source": "teams",
-        "github_login": login,
-        "user_email": user.email,
-        "workspace": workspace,
-        "environment": workspace,
-        "teams_conversation": reference.dump(),
-        # A direct message reaches exactly one person; the agent still rechecks
-        # them against the configured admins before handing out admin tools.
-        "admin_thread": True,
-    }
-    if repo:
-        configurable["repo"] = repo
-    sender_id = user.as_person({"id": f"github:{login}", "github_login": login})["id"]
-    run_input: RunInput = {
-        "messages": build_input_messages(
-            text, {"sender_id": sender_id, "surface": "teams", "kind": "human"}
-        )
-    }
-    run = await common.dispatch_agent_run(
-        thread_id,
-        None,
-        configurable,
-        source="teams",
-        thread_title=None,
-        input=run_input,
-        metadata=common.AGENT_VERSION_METADATA,
-        client=client,
-        multitask_strategy="interrupt",
-    )
-    logger.info(
-        "Dispatched a run for a Teams direct message",
-        extra={"agent_thread_id": thread_id, "agent_run_id": common.run_id_for_logging(run)},
-    )
+    await message.start_run(conversation, user, login)
 
 
 async def _existing_metadata(client: LangGraphClient, thread_id: str) -> JsonObject | None:

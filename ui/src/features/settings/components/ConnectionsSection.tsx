@@ -10,6 +10,7 @@ import type { LangSmithConnectionStatus, SessionUser } from "@/lib/api"
 import { SettingsRow, SettingsSection } from "@/components/AppShell"
 import { api, connectService } from "@/lib/api"
 import { optimisticUpdate } from "@/lib/optimistic"
+import { sessionQueryOptions } from "@/lib/session"
 
 function StatusPill({ connected }: { connected: boolean }) {
   return (
@@ -18,6 +19,12 @@ function StatusPill({ connected }: { connected: boolean }) {
     </Badge>
   )
 }
+
+/** The session field naming each provider's linked account. */
+const LINKED_ACCOUNT_FIELD = {
+  slack: "slack_user_id",
+  microsoft: "microsoft_login",
+} as const satisfies Record<"slack" | "microsoft", keyof SessionUser>
 
 function AccountRow({
   label,
@@ -29,7 +36,7 @@ function AccountRow({
 }: {
   label: string
   icon: IconComponent
-  provider: "slack" | "microsoft"
+  provider: keyof typeof LINKED_ACCOUNT_FIELD
   enabled: boolean
   /** How the linked account reads after "Linked to", or null while unlinked. */
   linkedAs: string | null
@@ -48,6 +55,21 @@ function AccountRow({
       void qc.invalidateQueries({ queryKey: ["session"] })
     })
   }
+  const disconnect = useMutation({
+    meta: { errorTitle: `Couldn't disconnect ${label}` },
+    mutationFn: () => api.disconnectAccount(provider),
+    onMutate: async () => ({
+      undo: await optimisticUpdate<SessionUser | null>(
+        qc,
+        sessionQueryOptions.queryKey,
+        (current) =>
+          current && { ...current, [LINKED_ACCOUNT_FIELD[provider]]: null }
+      ),
+    }),
+    onError: (_e, _v, ctx) => ctx?.undo(),
+    onSettled: () =>
+      void qc.invalidateQueries({ queryKey: sessionQueryOptions.queryKey }),
+  })
 
   return (
     <SettingsRow
@@ -56,20 +78,26 @@ function AccountRow({
       control={
         <div className="flex items-center gap-space-2">
           <StatusPill connected={connected} />
-          {enabled ? (
+          {connected ? (
             <Button
               size="xs"
-              color={connected ? "secondary" : "primary"}
-              variant={connected ? "outlined" : "normal"}
+              color="secondary"
+              variant="outlined"
+              onClick={() => disconnect.mutate()}
+              disabled={disconnect.isPending}
+            >
+              Disconnect
+            </Button>
+          ) : enabled ? (
+            <Button
+              size="xs"
+              color="primary"
+              variant="normal"
               leftDecorator={icon}
               onClick={connect}
               disabled={connecting}
             >
-              {connecting
-                ? "Redirecting…"
-                : connected
-                  ? "Reconnect"
-                  : "Connect"}
+              {connecting ? "Redirecting…" : "Connect"}
             </Button>
           ) : (
             <span className="text-xxs text-secondary">
@@ -184,12 +212,13 @@ export function ConnectionsSection({ user }: { user: SessionUser }) {
         }
         unlinkedDescription="Sign in with Slack so Open SWE resolves your GitHub account when you tag it — the verified email also resolves Linear mentions."
       />
-      {user.microsoft_oauth_enabled && (
+      {/* A linked account stays listed so it can be disconnected after Teams is turned off. */}
+      {(user.microsoft_oauth_enabled || user.microsoft_login) && (
         <AccountRow
           label="Microsoft Teams"
           icon={MicrosoftTeamsLogoIcon}
           provider="microsoft"
-          enabled
+          enabled={!!user.microsoft_oauth_enabled}
           linkedAs={
             user.microsoft_login
               ? `Microsoft account ${user.microsoft_login}`

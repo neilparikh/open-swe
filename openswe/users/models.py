@@ -427,6 +427,25 @@ class User(Base):
             raise RuntimeError(f"user {self.id} vanished during link")
         return stored
 
+    async def unlink(self, provider: Provider) -> Self:
+        """Detach this person's ``provider`` accounts, as if they had never linked one."""
+        cls = type(self)
+        async with postgres.session() as session:
+            await session.execute(
+                delete(UserIdentity).where(
+                    UserIdentity.user_id == self.id, UserIdentity.provider == provider
+                )
+            )
+            await session.flush()
+            stored = await cls._load(session, self.id)
+        if stored is None:
+            raise RuntimeError(f"user {self.id} vanished during unlink")
+        logger.info(
+            "Unlinked a provider account",
+            extra={"user_id": str(self.id), "user_provider": provider},
+        )
+        return stored
+
     async def rename(self, display_name: str) -> None:
         """Replace a person's display name, for the one backfill that knows better."""
         cls = type(self)

@@ -1792,6 +1792,9 @@ export const api = {
     request<LangSmithConnectionStatus>("/my-credentials/langsmith", {
       method: "DELETE",
     }),
+  /** Unlink the signed-in person's account on a chat platform. */
+  disconnectAccount: (provider: "slack" | "microsoft") =>
+    request<{ connected: boolean }>(`/${provider}/link`, { method: "DELETE" }),
   listManagedToolsGateways: () =>
     request<ManagedToolsGateway[]>("/managed-tools/gateways"),
   getMyManagedTools: () => request<ManagedToolsView>("/my-managed-tools"),

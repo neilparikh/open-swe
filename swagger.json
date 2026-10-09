@@ -11050,6 +11050,38 @@
         ]
       }
     },
+    "/dashboard/api/microsoft/link": {
+      "delete": {
+        "description": "Unlink the signed-in person's Microsoft account.",
+        "operationId": "microsoft_disconnect_dashboard_api_microsoft_link_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Microsoft Disconnect Dashboard Api Microsoft Link Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "DashboardSession": []
+          }
+        ],
+        "summary": "Microsoft Disconnect",
+        "tags": [
+          "dashboard",
+          "microsoft"
+        ]
+      }
+    },
     "/dashboard/api/microsoft/login": {
       "get": {
         "description": "Start Sign in with Microsoft to link it to the signed-in person.",
@@ -17338,6 +17370,39 @@
           }
         ],
         "summary": "Slack Desktop Exchange",
+        "tags": [
+          "dashboard",
+          "slack",
+          "slack"
+        ]
+      }
+    },
+    "/dashboard/api/slack/link": {
+      "delete": {
+        "description": "Unlink the signed-in person's Slack account.",
+        "operationId": "slack_disconnect_dashboard_api_slack_link_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Slack Disconnect Dashboard Api Slack Link Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "DashboardSession": []
+          }
+        ],
+        "summary": "Slack Disconnect",
         "tags": [
           "dashboard",
           "slack",

@@ -2,10 +2,15 @@
 
 import asyncio
 
+import httpx
 import pytest
+from fastapi import FastAPI
 from sqlalchemy import func, select, update
 
+from openswe.dashboard import routes
+from openswe.dashboard.oauth import COOKIE_NAME, issue_session
 from openswe.database import postgres
+from openswe.slack.webhook import slack_login
 from openswe.users import UnauthorizedUser, User, UserPreferences, UserPreferencesPatch
 
 pytestmark = pytest.mark.usefixtures("registry_db")
@@ -86,6 +91,37 @@ async def test_linking_a_claimed_identity_moves_it_to_the_new_owner() -> None:
     reloaded_first = await User.get(first.id)
     assert reloaded_first is not None
     assert [i.provider for i in reloaded_first.identities] == ["github"]
+
+
+async def test_disconnecting_slack_leaves_the_person_as_if_they_never_linked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DASHBOARD_JWT_SECRET", "test-session-signing-key-at-least-32-bytes")
+    ada = await User.sign_in("github", "1", login="ada", email="ada@example.com")
+    ada = await ada.link("slack", "U_ADA", email="ada@example.com")
+    bob = await User.sign_in("github", "2", login="bob")
+    await bob.link("slack", "U_BOB")
+
+    app = FastAPI()
+    app.include_router(routes.router)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://localhost:2024"
+    ) as client:
+        client.cookies.set(
+            COOKIE_NAME,
+            issue_session(login="ada", email=None, avatar_url=None, user_id=str(ada.id)),
+        )
+        disconnected = await client.delete(
+            "/dashboard/api/slack/link", headers={"Origin": "http://localhost:2024"}
+        )
+
+    assert disconnected.status_code == 200, disconnected.text
+    reloaded = await User.get(ada.id)
+    assert reloaded is not None and [i.provider for i in reloaded.identities] == ["github"]
+    assert await User.for_identity("slack", "U_ADA") is None
+    assert await slack_login("U_BOB") == "bob"
+    # Like anyone who never linked, she can still be matched by her profile email.
+    assert await slack_login("U_ADA", "ada@example.com") == "ada"
 
 
 async def test_an_unauthorized_github_login_gets_no_user_row() -> None:

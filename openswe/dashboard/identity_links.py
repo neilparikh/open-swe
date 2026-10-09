@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from openswe.audit_logs.middleware import audit_endpoint
 from openswe.dashboard.deps import SESSION_DEP
 from openswe.dashboard.oauth import (
     STATE_TTL_SECONDS,
@@ -100,6 +101,13 @@ class IdentityProvider(ABC):
             name=f"{self.name}_desktop_exchange",
             description=f"Finish a desktop {self.label} link with the app's own session.",
         )
+        router.add_api_route(
+            f"/{self.name}/link",
+            self._disconnect,
+            methods=["DELETE"],
+            name=f"{self.name}_disconnect",
+            description=f"Unlink the signed-in person's {self.label} account.",
+        )
         return router
 
     @property
@@ -182,6 +190,13 @@ class IdentityProvider(ABC):
             raise HTTPException(400, "malformed handoff code") from None
         await self._link(session, account)
         return {"connected": True}
+
+    @audit_endpoint
+    async def _disconnect(self, session: dict[str, Any] = SESSION_DEP) -> dict[str, bool]:
+        user = await self._session_user(session)
+        if user is not None:
+            await user.unlink(self.name)
+        return {"connected": False}
 
     async def _verified_account(self, code: str, nonce: str) -> LinkedAccount:
         return await self.verified_account(code, redirect_uri=self.redirect_uri(), nonce=nonce)

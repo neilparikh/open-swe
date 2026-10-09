@@ -396,6 +396,7 @@ Open SWE answers direct messages and channel @mentions in Microsoft Teams (previ
 
 - **Direct messages:** the whole chat with the bot is one ongoing agent thread, private to the person; `new` or `start over` begins a fresh thread.
 - **Channels:** an @mention starts or continues the agent thread of that Teams thread, and the agent replies in it. Channel threads are visible to every Open SWE user, like Slack channel threads. Only messages that @mention the bot reach the agent, so follow-ups mention it again. The bot works in standard channels; the app does not opt in to shared or private channels, which can include people from other organizations.
+- **Answer buttons:** when the agent offers choices, its reply carries up to five buttons. A click is sent as the clicker's reply and runs as them, under the same account linking, and each card can be answered once.
 - Group chats are not supported yet: the bot asks to be mentioned in a channel or messaged directly.
 
 1. In the Azure portal, **Create a resource → Azure Bot**. Choose **Single Tenant** as the type of app, with a new Microsoft App ID; the free F0 tier is enough.

@@ -18,3 +18,10 @@ Format `message` in Markdown: **bold**, _italic_, [link text](url), lists, and
 fenced code blocks with a language identifier for code, commands, and logs.
 Never paste long output, diffs, or multi-section write-ups; publish detail with
 `save_plan` and send a one-line summary with its link.
+
+When asking the person to choose among concrete answers or actions, pass
+`options` to offer up to five one-click answer buttons, including for blocking
+questions and approvals; a click is sent to you as their reply. Use short,
+concrete button labels. In `message`, explain exactly what each button means
+and what choosing it will do; never rely on the short label alone. They can
+still reply in their own words. Do not invent choices for open-ended questions.

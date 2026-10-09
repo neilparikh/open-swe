@@ -12,10 +12,11 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import timedelta
+from http import HTTPStatus
 from typing import Any, Literal, Self
 
 from langgraph_sdk.client import LangGraphClient
-from microsoft_agents.activity import Activity, ActivityTypes
+from microsoft_agents.activity import Activity, ActivityTypes, AdaptiveCardInvokeResponse
 from microsoft_agents.hosting.core import TurnContext, TurnState
 
 from openswe import event_claims
@@ -23,6 +24,7 @@ from openswe.dashboard.oauth import build_settings_url
 from openswe.dispatch import thread_workspace
 from openswe.input_messages import RunInput, build_input_messages
 from openswe.source_context import SourceContext, TeamsConversationRef
+from openswe.teams.cards import answered_card
 from openswe.teams.conversations import TeamsConversation
 from openswe.users import User
 from openswe.utils.json_types import JsonObject, thread_metadata
@@ -34,6 +36,11 @@ logger = logging.getLogger(__name__)
 
 _CLAIM_SCOPE = "teams-activity"
 _CLAIM_TTL = timedelta(hours=1)
+# A card's buttons stay on screen long after the run that offered them.
+_ANSWER_CLAIM_SCOPE = "teams-answer"
+_ANSWER_CLAIM_TTL = timedelta(days=7)
+_CARD_RESPONSE = "application/vnd.microsoft.card.adaptive"
+_MESSAGE_RESPONSE = "application/vnd.microsoft.activity.message"
 _START_OVER_COMMANDS = frozenset({"new", "start over"})
 _TITLE_MAX_CHARS = 80
 
@@ -41,6 +48,8 @@ _MENTION = re.compile(r"<at>(.*?)</at>", re.DOTALL)
 
 NOT_A_CHANNEL_OR_DIRECT_MESSAGE = "Mention me in a team channel or message me directly."
 STARTED_OVER = "Started a new conversation. What should I work on?"
+ALREADY_ANSWERED = "This was already answered."
+STALE_BUTTON = "That button no longer works here."
 
 ConversationKind = Literal["direct", "channel", "other"]
 
@@ -53,9 +62,11 @@ class TeamsMessage:
     reference: TeamsConversationRef
     text: str
     sender_object_id: str
+    sender_name: str
 
     @classmethod
-    def parse(cls, activity: Activity) -> Self:
+    def parse(cls, activity: Activity, *, text: str | None = None) -> Self:
+        """The message ``activity`` carries; ``text`` stands in for a button click's choice."""
         conversation = activity.conversation
         sender = activity.from_property
         conversation_type = (conversation.conversation_type if conversation else None) or ""
@@ -76,7 +87,13 @@ class TeamsMessage:
             user_id=sender.id if sender is not None else "",
             user_aad_object_id=sender_object_id,
         )
-        return cls(kind, reference, _plain_text(activity.text or ""), sender_object_id)
+        return cls(
+            kind,
+            reference,
+            _plain_text(activity.text or "") if text is None else text.strip(),
+            sender_object_id,
+            (sender.name if sender is not None else None) or "",
+        )
 
     @property
     def starts_over(self) -> bool:
@@ -178,6 +195,38 @@ async def handle_message(context: TurnContext, _state: TurnState) -> None:
         raise
 
 
+async def handle_answer(
+    context: TurnContext, _state: TurnState, data: object
+) -> AdaptiveCardInvokeResponse:
+    """Run an answer button's choice as the clicker's next message, then retire the card.
+
+    Each card is answered once: a second click, or a teammate clicking the same
+    card in a channel, starts nothing.
+    """
+    answer, card_id = _answer(data)
+    message = TeamsMessage.parse(context.activity, text=answer)
+    if not message.text or not card_id or message.kind == "other":
+        return _invoke_message(STALE_BUTTON)
+    try:
+        user = await _linked_sender(message)
+    except SenderNotReady as exc:
+        # The card stays answerable, so they can link their account and click again.
+        return _invoke_message(exc.prompt)
+    if not await event_claims.claim(_ANSWER_CLAIM_SCOPE, card_id, ttl=_ANSWER_CLAIM_TTL):
+        return _invoke_message(ALREADY_ANSWERED)
+    try:
+        conversation = await TeamsConversation.current(message.reference.conversation_id)
+        await message.start_run(conversation, user)
+    except Exception:
+        await event_claims.release(_ANSWER_CLAIM_SCOPE, card_id)
+        raise
+    return AdaptiveCardInvokeResponse(
+        status_code=HTTPStatus.OK,
+        type=_CARD_RESPONSE,
+        value=answered_card(message.text, message.sender_name),
+    )
+
+
 class SenderNotReady(Exception):
     """The sender cannot start a run yet; ``prompt`` tells them what to do about it."""
 
@@ -248,6 +297,23 @@ async def _has_github_token(login: str) -> bool:
             exc_info=True,
         )
         return False
+
+
+def _answer(data: object) -> tuple[str, str]:
+    """``(answer, card id)`` from an answer button's data, empty when malformed."""
+    if not isinstance(data, dict):
+        return "", ""
+    answer = data.get("answer")
+    card_id = data.get("card")
+    return (
+        answer.strip() if isinstance(answer, str) else "",
+        card_id if isinstance(card_id, str) else "",
+    )
+
+
+def _invoke_message(text: str) -> AdaptiveCardInvokeResponse:
+    """A short note Teams shows the clicker, leaving the card as it is."""
+    return AdaptiveCardInvokeResponse(status_code=HTTPStatus.OK, type=_MESSAGE_RESPONSE, value=text)
 
 
 def _plain_text(text: str) -> str:

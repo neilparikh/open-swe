@@ -7,6 +7,7 @@ from langgraph.config import get_config
 
 from openswe.run_config import RunConfig
 from openswe.teams.bot import TeamsBot, TeamsDeliveryRefused
+from openswe.teams.cards import answer_card
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +15,11 @@ logger = logging.getLogger(__name__)
 _MAX_MESSAGE_CHARS = 20_000
 
 
-async def teams_reply(message: str, response_type: Literal["progress", "final"]) -> dict[str, Any]:
+async def teams_reply(
+    message: str,
+    response_type: Literal["progress", "final"],
+    options: list[str] | None = None,
+) -> dict[str, Any]:
     """Implement the `teams_reply` tool."""
     text = message.strip()
     if not text:
@@ -28,7 +33,7 @@ async def teams_reply(message: str, response_type: Literal["progress", "final"])
     if len(text) > _MAX_MESSAGE_CHARS:
         text = text[: _MAX_MESSAGE_CHARS - 1].rstrip() + "…"
     try:
-        await bot.send(cfg.teams_conversation, text)
+        await bot.send(cfg.teams_conversation, text, card=answer_card(options or []))
     except TeamsDeliveryRefused as exc:
         logger.warning(
             "Refused a Teams reply",

@@ -1,4 +1,4 @@
-"""Teams deliveries reach the bot only verified, and only linked direct messages start runs."""
+"""Teams deliveries reach the bot only verified, and only linked people start runs or answer cards."""
 
 import json
 import time
@@ -25,7 +25,9 @@ from microsoft_agents.hosting.fastapi import CloudAdapter
 
 from openswe.source_context import TeamsConversationRef
 from openswe.teams import bot, runs
+from openswe.teams.cards import ANSWER_VERB
 from openswe.teams.routes import router
+from openswe.teams.tools import reply
 from openswe.users import User, UserIdentity
 from openswe.webhooks import common
 from openswe.workspaces.routing import WorkspaceResolution
@@ -134,7 +136,7 @@ def _activity_json(
         "id": activity_id,
         "channelId": "msteams",
         "serviceUrl": service_url,
-        "from": {"id": "29:alice", "aadObjectId": sender_object_id},
+        "from": {"id": "29:alice", "name": "Alice", "aadObjectId": sender_object_id},
         "recipient": {"id": f"28:{_CLIENT_ID}"},
         "conversation": {
             "id": conversation_id,
@@ -397,3 +399,106 @@ async def test_start_over_in_a_channel_is_an_ordinary_request(platform: Platform
     platform.cancel.assert_not_awaited()
     platform.dispatch.assert_awaited_once()
     assert context.texts == []
+
+
+def _click_json(card_id: str, answer: str, **fields: Any) -> dict[str, Any]:
+    return {
+        **_activity_json(text="", **fields),
+        "type": "invoke",
+        "name": "adaptiveCard/action",
+        "value": {
+            "action": {
+                "type": "Action.Execute",
+                "verb": ANSWER_VERB,
+                "data": {"answer": answer, "card": card_id},
+            }
+        },
+    }
+
+
+async def _click(card_id: str, answer: str, **fields: Any) -> Any:
+    activity = Activity.model_validate(_click_json(card_id, answer, **fields))
+    context = _Context(activity)
+    data = {"answer": answer, "card": card_id}
+    return await runs.handle_answer(cast(TurnContext, context), cast(TurnState, None), data)
+
+
+@pytest.mark.asyncio
+async def test_an_answer_click_runs_as_the_clicker_and_retires_the_card(
+    monkeypatch: pytest.MonkeyPatch, platform: Platform
+) -> None:
+    _verified_as_microsoft(monkeypatch, _TEAMS_SERVICE_URL)
+    monkeypatch.setattr(msal_auth, "ConfidentialClientApplication", _BlockingMsalClient)
+
+    response = await _post(
+        json.dumps(_click_json("card-1", "Ready for review", activity_id="click-1")).encode(),
+        "Bearer signed-by-microsoft",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["type"] == "application/vnd.microsoft.card.adaptive"
+    assert "**Alice** chose **Ready for review**" in json.dumps(response.json()["value"])
+    platform.dispatch.assert_awaited_once()
+    assert "Ready for review" in str(
+        platform.dispatch.await_args.kwargs["input"]["messages"][-1]["content"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_each_answer_card_is_answered_once_and_only_by_linked_people(
+    platform: Platform,
+) -> None:
+    stranger = await _click("card-1", "Draft", sender_object_id="someone-else")
+    assert stranger.type == "application/vnd.microsoft.activity.message"
+    assert "who you are" in stranger.value
+    platform.dispatch.assert_not_awaited()
+
+    answered = await _click("card-1", "Draft")
+    assert answered.type == "application/vnd.microsoft.card.adaptive"
+    platform.dispatch.assert_awaited_once()
+
+    again = await _click("card-1", "Ready for review")
+    assert again.value == runs.ALREADY_ANSWERED
+    platform.dispatch.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_teams_reply_offers_its_options_as_answer_buttons(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent: list[dict[str, Any]] = []
+
+    class _Bot:
+        async def send(self, conversation: object, text: str, *, card: object = None) -> None:
+            sent.append({"text": text, "card": card})
+
+    conversation = TeamsConversationRef(
+        service_url=_TEAMS_SERVICE_URL, conversation_id=_DIRECT_MESSAGE, bot_id="28:bot"
+    )
+    monkeypatch.setattr(
+        reply,
+        "get_config",
+        lambda: {"configurable": {"thread_id": "t1", "teams_conversation": conversation.dump()}},
+    )
+    monkeypatch.setattr(reply.TeamsBot, "configured", staticmethod(lambda: _Bot()))
+    long_option = "x" * 100
+
+    result = await reply.teams_reply(
+        "Draft or ready?",
+        "final",
+        options=["Draft", " ", "Ready for review", long_option, "4", "5", "6"],
+    )
+
+    assert result["success"] is True
+    [posted] = sent
+    assert posted["text"] == "Draft or ready?"
+    buttons = posted["card"]["actions"]
+    assert [button["data"]["answer"] for button in buttons] == [
+        "Draft",
+        "Ready for review",
+        long_option,
+        "4",
+        "5",
+    ]
+    assert len(buttons[2]["title"]) == 75
+    assert len({button["data"]["card"] for button in buttons}) == 1

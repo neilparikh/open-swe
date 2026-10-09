@@ -15,6 +15,7 @@ from fastapi import HTTPException, Request, Response
 from microsoft_agents.activity import (
     Activity,
     ActivityTypes,
+    Attachment,
     ChannelAccount,
     ConversationAccount,
     ConversationReference,
@@ -35,9 +36,11 @@ from microsoft_agents.hosting.core import (
 from microsoft_agents.hosting.fastapi import CloudAdapter
 
 from openswe.source_context import TeamsConversationRef
+from openswe.teams.cards import ANSWER_VERB
 from openswe.teams.entra import EntraApp
-from openswe.teams.runs import handle_message
+from openswe.teams.runs import handle_answer, handle_message
 from openswe.utils.http import bearer_token
+from openswe.utils.json_types import JsonObject
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +78,7 @@ class TeamsBot:
             connection_manager=connections,
         )
         self._app.activity("message")(handle_message)
+        self._app.adaptive_card.action_execute(ANSWER_VERB)(handle_answer)
         self._app.activity("installationUpdate")(_log_installation)
 
     @staticmethod
@@ -99,10 +103,12 @@ class TeamsBot:
         response = await self._adapter.process(request, self._app)
         return response or Response(status_code=HTTPStatus.ACCEPTED)
 
-    async def send(self, conversation: TeamsConversationRef, text: str) -> None:
-        """Post markdown ``text`` into a Teams conversation outside any inbound request.
+    async def send(
+        self, conversation: TeamsConversationRef, text: str, *, card: JsonObject | None = None
+    ) -> None:
+        """Post markdown ``text``, with ``card`` under it, into a Teams conversation.
 
-        The SDK's proactive path skips the host check its inbound path makes, and
+        Works outside any inbound request. The SDK's proactive path skips the host check its inbound path makes, and
         a stored reference must never route the bot's token anywhere but Microsoft.
         """
         service_url = conversation.service_url
@@ -127,12 +133,16 @@ class TeamsBot:
             ),
         )
 
+        message = Activity(
+            type=ActivityTypes.message, text=text, text_format=TextFormatTypes.markdown
+        )
+        if card is not None:
+            message.attachments = [
+                Attachment(content_type="application/vnd.microsoft.card.adaptive", content=card)
+            ]
+
         async def post(context: TurnContext) -> None:
-            await context.send_activity(
-                Activity(
-                    type=ActivityTypes.message, text=text, text_format=TextFormatTypes.markdown
-                )
-            )
+            await context.send_activity(message)
 
         await self._adapter.continue_conversation(
             self._client_id, reference.get_continuation_activity(), post

@@ -58,7 +58,7 @@ def linked_asker(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(SlackChannelContext, "allows_operations", property(lambda _self: True))
     monkeypatch.setattr(slack_ask, "get_slack_user_info", AsyncMock(return_value=None))
-    monkeypatch.setattr(slack_ask.User, "login_for_slack", AsyncMock(return_value="octocat"))
+    monkeypatch.setattr(User, "login_for_slack", AsyncMock(return_value="octocat"))
     monkeypatch.setattr(slack_ask.common, "get_valid_access_token", AsyncMock(return_value="gho_x"))
     _patch_channel(monkeypatch, [])
     monkeypatch.setattr(slack_ask, "get_slack_user_names", AsyncMock(return_value={}))

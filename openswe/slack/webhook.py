@@ -706,7 +706,11 @@ async def workspace_scoped_default_repo(candidate: Repo, workspace: str | None) 
 
 
 async def slack_login(user_id: str, user_email: str | None = None) -> str | None:
-    """GitHub login for a Slack user: by Slack id first, then by profile email."""
+    """GitHub login for a Slack user: by Slack id first, then by profile email.
+
+    ``user_email`` is the profile email when the caller already has it; ``None``
+    looks it up.
+    """
     if login := await User.login_for_slack(user_id):
         return login
     if user_email is None and user_id:

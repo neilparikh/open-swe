@@ -31,9 +31,8 @@ from openswe.slack.client import (
 )
 from openswe.slack.payloads import SlackChannelContext, SlackMessage
 from openswe.slack.thinking import settle_slack_thread_status
-from openswe.slack.webhook import workspace_scoped_default_repo
+from openswe.slack.webhook import slack_login, workspace_scoped_default_repo
 from openswe.source_context import SlackThreadRef, SourceContext
-from openswe.users import User
 from openswe.utils.message_commands import parse_mention_command
 from openswe.webhooks import common
 from openswe.workspaces.routing import resolve_workspace
@@ -227,10 +226,7 @@ async def _process_slack_ask(request: SlackAskRequest) -> None:
 
     user_name, user_email = await _slack_user_profile(request.user_id)
     login = await _runnable_login(
-        request,
-        await User.login_for_slack(request.user_id)
-        or (await User.login_for_email(user_email) if user_email else None),
-        user_email,
+        request, await slack_login(request.user_id, user_email), user_email
     )
     if login is None:
         return

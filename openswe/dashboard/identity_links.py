@@ -187,22 +187,12 @@ class IdentityProvider(ABC):
         return await self.verified_account(code, redirect_uri=self.redirect_uri(), nonce=nonce)
 
     async def _link(self, session: dict[str, Any], account: LinkedAccount) -> None:
-        """Attach ``account`` to the person the session belongs to.
-
-        Sessions minted before the ``user_id`` claim existed fall back to the
-        GitHub login; one without a users row is left unlinked.
-        """
-        github_login = session["sub"]
-        user_id = session_user_id(session)
-        user = (
-            await User.get(user_id)
-            if user_id is not None
-            else await User.for_login("github", github_login)
-        )
+        """Attach ``account`` to the person the session belongs to, if they have a users row."""
+        user = await self._session_user(session)
         if user is None:
             logger.info(
                 "Account not linked: no user for this GitHub login",
-                extra={"github_login": github_login, "linked_provider": self.name},
+                extra={"github_login": session["sub"], "linked_provider": self.name},
             )
             return
         await user.link(
@@ -212,6 +202,18 @@ class IdentityProvider(ABC):
             email=account.email,
             team_id=account.team_id,
         )
+
+    @staticmethod
+    async def _session_user(session: dict[str, Any]) -> User | None:
+        """The person the session belongs to.
+
+        Sessions minted before the ``user_id`` claim existed fall back to the
+        GitHub login.
+        """
+        user_id = session_user_id(session)
+        if user_id is not None:
+            return await User.get(user_id)
+        return await User.for_login("github", session["sub"])
 
     def _clear_state_cookie(self, response: Response) -> None:
         secure, _ = cookie_security()

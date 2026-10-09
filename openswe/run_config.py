@@ -31,7 +31,12 @@ from pydantic_core import PydanticSerializationError, to_jsonable_python
 
 from openswe.invocation import resolve_invocation_id
 from openswe.openai_responses.client_tools import ClientToolSpec
-from openswe.source_context import GitHubIssueRef, LinearIssueRef, SlackThreadRef
+from openswe.source_context import (
+    GitHubIssueRef,
+    LinearIssueRef,
+    SlackThreadRef,
+    TeamsConversationRef,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +121,7 @@ class RunConfig(BaseModel):
     slack_thread: SlackThreadRef | None = None
     linear_issue: LinearIssueRef | None = None
     github_issue: GitHubIssueRef | None = None
+    teams_conversation: TeamsConversationRef | None = None
     github_pr_or_issue: GitHubPROrIssueRef | None = None
 
     # Pull request under review

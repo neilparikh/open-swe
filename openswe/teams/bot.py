@@ -1,8 +1,8 @@
 """The Microsoft Teams bot, built on the Microsoft 365 Agents SDK.
 
-For now it only exercises installation, Bot Framework auth and account
-linking: it verifies each delivery, greets a sender whose Microsoft account is
-linked by their GitHub login, asks anyone else to link it, and logs installs.
+It verifies each Bot Framework delivery, hands direct messages to
+:mod:`openswe.teams.runs`, logs installs, and posts the agent's replies back into
+a conversation after the request that started the run has ended.
 """
 
 import asyncio
@@ -12,7 +12,14 @@ from http import HTTPStatus
 
 import jwt
 from fastapi import HTTPException, Request, Response
-from microsoft_agents.activity import ChannelAccount
+from microsoft_agents.activity import (
+    Activity,
+    ActivityTypes,
+    ChannelAccount,
+    ConversationAccount,
+    ConversationReference,
+    TextFormatTypes,
+)
 from microsoft_agents.authentication.msal import MsalAuth
 from microsoft_agents.hosting.core import (
     AgentApplication,
@@ -27,12 +34,16 @@ from microsoft_agents.hosting.core import (
 )
 from microsoft_agents.hosting.fastapi import CloudAdapter
 
-from openswe.dashboard.oauth import build_settings_url
+from openswe.source_context import TeamsConversationRef
 from openswe.teams.entra import EntraApp
-from openswe.users import User
+from openswe.teams.runs import handle_message
 from openswe.utils.http import bearer_token
 
 logger = logging.getLogger(__name__)
+
+
+class TeamsDeliveryRefused(Exception):
+    """A reply would go somewhere other than Microsoft's Bot Framework hosts."""
 
 
 class TeamsBot:
@@ -53,17 +64,17 @@ class TeamsBot:
             provider_factory=_NonBlockingMsalAuth,
             connections_configurations={"SERVICE_CONNECTION": config},
         )
+        self._client_id = app.client_id
         self._validator = JwtTokenValidator(config)
         # Off by default. On, replies only go to a Microsoft host that the signed
         # token itself named, so the bot's own token never leaves Microsoft.
-        self._adapter = CloudAdapter(
-            connection_manager=connections, host_validator=OutboundHostValidator(enabled=True)
-        )
+        self._hosts = OutboundHostValidator(enabled=True)
+        self._adapter = CloudAdapter(connection_manager=connections, host_validator=self._hosts)
         self._app = AgentApplication[TurnState](
             ApplicationOptions(storage=MemoryStorage(), start_typing_timer=False),
             connection_manager=connections,
         )
-        self._app.activity("message")(_greet)
+        self._app.activity("message")(handle_message)
         self._app.activity("installationUpdate")(_log_installation)
 
     @staticmethod
@@ -88,6 +99,45 @@ class TeamsBot:
         response = await self._adapter.process(request, self._app)
         return response or Response(status_code=HTTPStatus.ACCEPTED)
 
+    async def send(self, conversation: TeamsConversationRef, text: str) -> None:
+        """Post markdown ``text`` into a Teams conversation outside any inbound request.
+
+        The SDK's proactive path skips the host check its inbound path makes, and
+        a stored reference must never route the bot's token anywhere but Microsoft.
+        """
+        service_url = conversation.service_url
+        if not service_url.startswith("https://") or not self._hosts.is_allowed(service_url):
+            raise TeamsDeliveryRefused(f"{service_url!r} is not a Bot Framework service URL")
+        if not conversation.conversation_id or not conversation.bot_id:
+            raise TeamsDeliveryRefused("the conversation reference names no conversation or bot")
+        reference = ConversationReference(
+            channel_id="msteams",
+            service_url=service_url,
+            conversation=ConversationAccount(
+                id=conversation.conversation_id, tenant_id=conversation.tenant_id or None
+            ),
+            agent=ChannelAccount(id=conversation.bot_id),
+            user=(
+                ChannelAccount(
+                    id=conversation.user_id,
+                    aad_object_id=conversation.user_aad_object_id or None,
+                )
+                if conversation.user_id
+                else None
+            ),
+        )
+
+        async def post(context: TurnContext) -> None:
+            await context.send_activity(
+                Activity(
+                    type=ActivityTypes.message, text=text, text_format=TextFormatTypes.markdown
+                )
+            )
+
+        await self._adapter.continue_conversation(
+            self._client_id, reference.get_continuation_activity(), post
+        )
+
 
 class _NonBlockingMsalAuth(MsalAuth):
     """``MsalAuth`` that builds its MSAL client off the event loop.
@@ -109,26 +159,6 @@ class _NonBlockingMsalAuth(MsalAuth):
 def _bot(app: EntraApp) -> TeamsBot:
     # Keyed by the settings, so a rotated secret builds a fresh bot.
     return TeamsBot(app)
-
-
-async def _greet(context: TurnContext, _state: TurnState) -> None:
-    await context.send_activity(await _greeting(context.activity.from_property))
-
-
-async def _greeting(sender: ChannelAccount | None) -> str:
-    """``hi`` to a linked sender by GitHub login; anyone else is asked to link."""
-    object_id = sender.aad_object_id if sender is not None else None
-    user = await User.for_identity("microsoft", object_id) if object_id else None
-    if user is not None and user.github_login:
-        return f"hi {user.github_login}"
-    # Token-free and the same for everyone, so it is safe in a shared channel.
-    settings_url = build_settings_url()
-    if settings_url is None:
-        return "I don't know who you are yet. Ask your Open SWE admin how to link your account."
-    return (
-        "I don't know who you are yet. Connect Microsoft Teams in "
-        f"[your Open SWE settings]({settings_url}), then message me again."
-    )
 
 
 async def _log_installation(context: TurnContext, _state: TurnState) -> None:

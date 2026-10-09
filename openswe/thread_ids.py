@@ -19,6 +19,7 @@ __all__ = [
     "review_style_thread_id",
     "reviewer_thread_id",
     "slack_thread_id",
+    "teams_thread_id",
     "thread_id_from_branch",
 ]
 
@@ -61,6 +62,11 @@ def review_style_thread_id(owner: str, repo: str) -> str:
 
 def slack_thread_id(channel: str, timestamp: str, nonce: str | None = None) -> str:
     return _url_uuid(f"slack:{channel}:{timestamp}:{nonce or ''}")
+
+
+def teams_thread_id(conversation_id: str, generation: int) -> str:
+    """A Teams conversation's thread; starting over moves it to the next generation."""
+    return _url_uuid(f"teams:{conversation_id}:{generation}")
 
 
 def baby_sit_lock_thread_id(key: str) -> str:

@@ -25,6 +25,7 @@ export type AgentSource =
   | "dashboard"
   | "github"
   | "slack"
+  | "teams"
   | "linear"
   | "schedule"
 
@@ -61,6 +62,7 @@ export type AcpToolKind =
   | "think"
   | "fetch"
   | "slack"
+  | "teams"
   | "linear"
   | "sql"
   | "managed-tools"

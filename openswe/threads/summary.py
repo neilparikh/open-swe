@@ -42,6 +42,7 @@ _SURFACED_SOURCES: tuple[str, ...] = (
     "dashboard",
     "github",
     "slack",
+    "teams",
     "linear",
     "schedule",
     "api",

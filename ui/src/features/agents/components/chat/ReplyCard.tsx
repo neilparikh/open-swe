@@ -10,11 +10,14 @@ interface ReplyCardProps {
 }
 
 function headerLabel(
-  isLinear: boolean,
+  kind: ToolExecutionChunk["toolKind"],
   status: ToolExecutionChunk["status"]
 ): string {
   const pending = status === "in_progress" || status === "pending"
-  if (isLinear) return pending ? "Commenting on Linear…" : "Commented on Linear"
+  if (kind === "linear")
+    return pending ? "Commenting on Linear…" : "Commented on Linear"
+  if (kind === "teams")
+    return pending ? "Replying in Teams…" : "Replied in Teams"
   return pending ? "Replying in Slack…" : "Replied in Slack"
 }
 
@@ -131,7 +134,7 @@ export const ReplyCard = memo(function ReplyCard({ chunk }: ReplyCardProps) {
           className="shrink-0 text-icon-tertiary"
           aria-hidden
         />
-        <span>{headerLabel(isLinear, chunk.status)}</span>
+        <span>{headerLabel(chunk.toolKind, chunk.status)}</span>
       </div>
       {body && (
         <div className="overflow-hidden rounded-xl border border-subtle bg-surface-level-2">

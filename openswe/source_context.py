@@ -71,6 +71,27 @@ class LinearIssueRef(BaseModel):
     url: str = ""
 
 
+class TeamsConversationRef(BaseModel):
+    """Where to post into the Teams conversation a thread belongs to.
+
+    Refreshed on every inbound message: Bot Framework may move a conversation to
+    another ``service_url``, and replies must follow it.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    service_url: str = ""
+    conversation_id: str = ""
+    tenant_id: str = ""
+    bot_id: str = ""
+    user_id: str = ""
+    user_aad_object_id: str = ""
+
+    def dump(self) -> dict[str, Any]:
+        """The JSON value to store, preserving exactly the keys that were set."""
+        return self.model_dump(mode="json", exclude_unset=True)
+
+
 class GitHubIssueRef(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -89,6 +110,7 @@ class SourceContext(BaseModel):
     slack_by_the_way_message_ts: str | None = None
     linear_issue: LinearIssueRef | None = None
     github_issue: GitHubIssueRef | None = None
+    teams_conversation: TeamsConversationRef | None = None
     pr_number: int | None = None
 
     @classmethod

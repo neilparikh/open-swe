@@ -34,8 +34,9 @@ from openswe.session_cost import schedule_session_cost_refresh
 from openswe.slack.client import post_slack_thread_reply
 from openswe.slack.code_channels import is_code_channel_session, set_session_status
 from openswe.slack.thinking import sync_slack_background_status
-from openswe.source_context import SourceContext
+from openswe.source_context import SourceContext, TeamsConversationRef
 from openswe.tasks.messages import TASK_MESSAGE_KIND, TaskMessage
+from openswe.teams.bot import TeamsBot
 from openswe.thread_feedback import schedule_answer_feedback
 from openswe.transcript.turns import TurnOutcome, settle_run_turn
 from openswe.ui_invalidations import Topic
@@ -211,6 +212,13 @@ async def _post_failure_reply(
             )
         return False
 
+    if source == "teams" or ctx.teams_conversation is not None:
+        if ctx.teams_conversation is not None:
+            return await _post_teams_reply(
+                thread_id, ctx.teams_conversation, _failure_text(status, reason_code=reason_code)
+            )
+        return False
+
     if source == "linear":
         if ctx.linear_issue and ctx.linear_issue.id:
             return await post_linear_notification(
@@ -236,6 +244,20 @@ async def _post_failure_reply(
 
     logger.info("No failure-reply channel for thread %s (source=%s)", thread_id, source)
     return False
+
+
+async def _post_teams_reply(thread_id: str, conversation: TeamsConversationRef, text: str) -> bool:
+    bot = TeamsBot.configured()
+    if bot is None:
+        return False
+    try:
+        await bot.send(conversation, text)
+    except Exception:
+        logger.exception(
+            "Failed to post a failure reply to Teams", extra={"agent_thread_id": thread_id}
+        )
+        return False
+    return True
 
 
 def _posted_failure_run_ids(metadata: dict[str, Any]) -> list[str]:

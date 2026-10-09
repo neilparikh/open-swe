@@ -1,4 +1,5 @@
 import { RobotIcon } from "@phosphor-icons/react/dist/ssr/Robot"
+import { MicrosoftTeamsLogoIcon } from "@phosphor-icons/react/dist/ssr/MicrosoftTeamsLogo"
 import { SlackLogoIcon } from "@phosphor-icons/react/dist/ssr/SlackLogo"
 import { useEffect, useRef, useState } from "react"
 
@@ -31,6 +32,7 @@ export function UserMessage({ message }: { message: Message }) {
 function StandardUserMessage({ message }: { message: Message }) {
   const isSystem = message.structuredSenderKind === "system"
   const isSlack = message.structuredSurface === "slack"
+  const isTeams = message.structuredSurface === "teams"
   const { excerpts, text } = parseExcerpts(
     message.chunks
       .filter((c) => c.kind === "text")
@@ -148,6 +150,7 @@ function StandardUserMessage({ message }: { message: Message }) {
         {!isSystem &&
           (message.structuredSenderName ||
             isSlack ||
+            isTeams ||
             message.structuredSenderIsBot) && (
             <div className="mb-space-1 flex items-center gap-space-1 px-space-1 text-xxs font-medium text-secondary">
               {isSlack && (
@@ -156,6 +159,14 @@ function StandardUserMessage({ message }: { message: Message }) {
                   weight="fill"
                   role="img"
                   aria-label="Slack"
+                />
+              )}
+              {isTeams && (
+                <MicrosoftTeamsLogoIcon
+                  size={12}
+                  weight="fill"
+                  role="img"
+                  aria-label="Microsoft Teams"
                 />
               )}
               {message.structuredSenderIsBot && (

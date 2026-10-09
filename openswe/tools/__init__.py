@@ -79,6 +79,7 @@ _TOOL_MODULES = {
     "slack_start_review_channel": "openswe.slack.tools.start_review_channel",
     "submit_thread_feedback": ".submit_thread_feedback",
     "suggest_task": ".suggest_task",
+    "teams_reply": "openswe.teams.tools.reply",
     "trigger_automation": ".automations",
     "update_automation": ".automations",
     "update_finding": ".update_finding",
@@ -162,6 +163,7 @@ __all__ = [
     "slack_start_review_channel",
     "submit_thread_feedback",
     "suggest_task",
+    "teams_reply",
     "trigger_automation",
     "update_automation",
     "update_finding",
@@ -188,6 +190,7 @@ if TYPE_CHECKING:
     from openswe.slack.tools.request_pr_review import request_pr_review
     from openswe.slack.tools.start_new_thread import slack_breakout_thread
     from openswe.slack.tools.start_review_channel import slack_start_review_channel
+    from openswe.teams.tools.reply import teams_reply
     from openswe.tools.add_finding import add_finding
     from openswe.tools.automations import (
         create_automation,

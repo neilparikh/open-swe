@@ -17,6 +17,7 @@ from openswe.input_messages import message_sender_id
 from openswe.middleware.require_user_reply import (
     REPLY_GUARD,
     SLACK_REPLY_SURFACE,
+    TEAMS_REPLY_SURFACE,
     WEB_REPLY_SURFACE,
     RequireUserReplyMiddleware,
 )
@@ -291,6 +292,37 @@ class TestRequireUserReplyMiddleware:
         posted.assert_awaited_once()
         assert posted.await_args is not None
         assert posted.await_args.args[:2] == ("all good", "final")
+
+    @pytest.mark.asyncio
+    async def test_a_teams_turn_is_owed_through_teams_reply(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import openswe.teams.tools.reply as teams_reply_tool
+
+        posted = AsyncMock(return_value={"success": True})
+        monkeypatch.setattr(teams_reply_tool, "teams_reply", posted)
+        middleware = RequireUserReplyMiddleware(
+            "teams_reply",
+            None,
+            initial_surface=TEAMS_REPLY_SURFACE,
+            chat_surface=TEAMS_REPLY_SURFACE,
+            max_retries=1,
+        )
+        messages = [HumanMessage(content="what is up"), AIMessage(content="all good")]
+
+        nudged = await middleware.aafter_model(
+            _state(*messages, reply_surface=TEAMS_REPLY_SURFACE), _runtime()
+        )
+        assert nudged is not None and nudged["jump_to"] == "model"
+        nudge = nudged["messages"][-1].content
+        assert "teams_reply" in nudge and "None" not in nudge
+
+        result = await middleware.aafter_model(
+            _state(*messages, reply_surface=TEAMS_REPLY_SURFACE, reply_nudges=1), _runtime()
+        )
+        assert result == {"reply_nudges": 0}
+        assert posted.await_args is not None
+        assert posted.await_args.args == ("all good", "final")
 
     def test_each_run_resolves_its_own_surface(self) -> None:
         middleware = RequireUserReplyMiddleware(

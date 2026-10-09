@@ -7,12 +7,17 @@ DASHBOARD_HANDOFF_SENDER_ID = "system:dashboard-handoff"
 
 _SURFACES: dict[ChatSurface, tuple[str, str]] = {
     "slack": ("Slack", "slack_reply"),
+    "teams": ("Microsoft Teams", "teams_reply"),
 }
 
 
 def chat_surface_of(name: object) -> ChatSurface | None:
     """The chat platform a thread source or reply surface names, or ``None`` for the web."""
-    return "slack" if name == "slack" else None
+    if name == "slack":
+        return "slack"
+    if name == "teams":
+        return "teams"
+    return None
 
 
 def dashboard_handoff_body(surface: ChatSurface) -> str:

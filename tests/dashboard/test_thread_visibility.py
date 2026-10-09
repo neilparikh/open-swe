@@ -65,6 +65,10 @@ def test_private_readable_by_owner_and_admin_but_promptable_by_owner_only(privat
     assert not summary.thread_is_promptable(metadata, "admin")
     assert summary.thread_is_readable({"source": "dashboard"}, "bob")
     assert summary.thread_is_promptable({"source": "dashboard"}, "bob")
+    teams_dm = {**metadata, "source": "teams"}
+    assert summary.thread_is_readable(teams_dm, "alice")
+    assert summary.thread_is_promptable(teams_dm, "alice")
+    assert not summary.thread_is_readable(teams_dm, "bob")
 
 
 def test_review_chat_is_hidden_without_hiding_normal_pr_threads():

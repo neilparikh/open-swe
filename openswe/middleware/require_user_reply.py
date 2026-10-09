@@ -33,10 +33,11 @@ logger = logging.getLogger(__name__)
 _CARD_TOOLS = frozenset({"connect_managed_tools"})
 
 # A chat platform the agent answers through its reply tool; "web" is the dashboard stream.
-ChatSurface = Literal["slack"]
-ReplySurface = Literal["slack", "web"]
+ChatSurface = Literal["slack", "teams"]
+ReplySurface = Literal["slack", "teams", "web"]
 
 SLACK_REPLY_SURFACE: ChatSurface = "slack"
+TEAMS_REPLY_SURFACE: ChatSurface = "teams"
 WEB_REPLY_SURFACE: ReplySurface = "web"
 
 REPLY_GUARD: SystemIdentity = {
@@ -53,11 +54,12 @@ class ReplySurfaceState(AgentState):
 
 def current_reply_surface(state: Mapping[str, Any]) -> ReplySurface:
     """The surface this thread currently owes its answer to."""
-    return (
-        SLACK_REPLY_SURFACE
-        if state.get("reply_surface") == SLACK_REPLY_SURFACE
-        else WEB_REPLY_SURFACE
-    )
+    surface = state.get("reply_surface")
+    if surface == SLACK_REPLY_SURFACE:
+        return SLACK_REPLY_SURFACE
+    if surface == TEAMS_REPLY_SURFACE:
+        return TEAMS_REPLY_SURFACE
+    return WEB_REPLY_SURFACE
 
 
 def _starts_turn(message: BaseMessage) -> bool:
@@ -169,9 +171,14 @@ class RequireUserReplyMiddleware(OpenSWEMiddleware):
         if not text:
             logger.warning("Nothing to post on the model's behalf: it wrote no text this turn")
             return
-        from openswe.slack.tools.reply import slack_reply
+        if self._chat_surface == TEAMS_REPLY_SURFACE:
+            from openswe.teams.tools.reply import teams_reply
 
-        result = await slack_reply(text, "final", state=dict(state))
+            result = await teams_reply(text, "final")
+        else:
+            from openswe.slack.tools.reply import slack_reply
+
+            result = await slack_reply(text, "final", state=dict(state))
         logger.warning(
             "Posted the model's final message on its behalf after it ignored the reply tool",
             extra={"reply_tool": self._tool_name, "reply_fallback_result": result},

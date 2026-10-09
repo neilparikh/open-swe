@@ -139,6 +139,7 @@ from openswe.middleware.prepare_run import PrepareRunState
 from openswe.middleware.require_cli_result import RequireCliResultMiddleware
 from openswe.middleware.require_user_reply import (
     SLACK_REPLY_SURFACE,
+    TEAMS_REPLY_SURFACE,
     WEB_REPLY_SURFACE,
     ReplySurface,
 )
@@ -255,6 +256,7 @@ from openswe.tools import (
     submit_thread_feedback,
     suggest_task,
     switch_to_performance_model,
+    teams_reply,
     trigger_automation,
     update_automation,
     web_search,
@@ -792,9 +794,26 @@ def _slack_tools_enabled(cfg: RunConfig) -> bool:
 
 def _initial_reply_surface(cfg: RunConfig) -> ReplySurface:
     """Where this run owes its answer, before anything moves mid-run."""
-    if cfg.source == DASHBOARD_SOURCE or not _slack_tools_enabled(cfg):
+    if cfg.source == DASHBOARD_SOURCE:
+        return WEB_REPLY_SURFACE
+    if _teams_tools_enabled(cfg):
+        return TEAMS_REPLY_SURFACE
+    if not _slack_tools_enabled(cfg):
         return WEB_REPLY_SURFACE
     return SLACK_REPLY_SURFACE
+
+
+def _teams_tools_enabled(cfg: RunConfig) -> bool:
+    """Whether the run answers a Teams conversation it has a trusted reference to.
+
+    The reference comes from the thread's own metadata or the verified inbound
+    activity, never from a client.
+    """
+    return (
+        cfg.source == "teams"
+        and cfg.teams_conversation is not None
+        and bool(cfg.teams_conversation.conversation_id.strip())
+    )
 
 
 def _slack_ask_mode(cfg: RunConfig) -> bool:
@@ -1767,6 +1786,7 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
         slack_reply,
         slack_breakout_thread,
         slack_start_review_channel,
+        teams_reply,
         submit_thread_feedback,
         suggest_task,
         submit_review_assessment_feedback,
@@ -1790,6 +1810,8 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
         static_tools = [
             tool for tool in static_tools if _registered_tool_name(tool) not in DM_EXCLUDED_TOOLS
         ]
+    if not _teams_tools_enabled(cfg):
+        static_tools = [tool for tool in static_tools if tool is not teams_reply]
     if local_run or not ENV.SLACK_BOT_TOKEN.get():
         static_tools = [
             tool
@@ -1870,7 +1892,9 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
     ]
     # Nothing is owed on a run the model cannot answer through: an automatic
     # incident sweep, for one, has the reply tool taken away on purpose.
-    reply_tool_offered = _registered_tool_name(slack_reply) in reserved_tool_names - excluded_tools
+    teams_run = _teams_tools_enabled(cfg)
+    reply_tool = teams_reply if teams_run else slack_reply
+    reply_tool_offered = _registered_tool_name(reply_tool) in reserved_tool_names - excluded_tools
     integration_tools = DynamicToolMiddleware(
         {"MCPs": mcp_tools},
         reserved_names={*DEEP_AGENT_TOOL_NAMES, *reserved_tool_names},
@@ -2123,12 +2147,16 @@ async def build_agent(config: RunnableConfig, *, tool_surface: ToolSurface | Non
                         if guide_prefetch
                         else [
                             RequireUserReplyMiddleware(
-                                _registered_tool_name(slack_reply),
-                                _registered_tool_name(slack_no_reply_needed),
+                                _registered_tool_name(reply_tool),
+                                # A direct message is always addressed to the agent.
+                                None if teams_run else _registered_tool_name(slack_no_reply_needed),
                                 initial_surface=(
                                     _initial_reply_surface(cfg)
                                     if reply_tool_offered
                                     else WEB_REPLY_SURFACE
+                                ),
+                                chat_surface=(
+                                    TEAMS_REPLY_SURFACE if teams_run else SLACK_REPLY_SURFACE
                                 ),
                                 replies=GUIDE_REPLY_TOOLS if guide is not None else frozenset(),
                             )

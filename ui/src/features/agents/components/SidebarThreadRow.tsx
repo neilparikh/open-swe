@@ -29,6 +29,7 @@ import { LockIcon } from "@phosphor-icons/react/dist/ssr/Lock"
 import { PushPinIcon } from "@phosphor-icons/react/dist/ssr/PushPin"
 import { PushPinSlashIcon } from "@phosphor-icons/react/dist/ssr/PushPinSlash"
 import { RobotIcon } from "@phosphor-icons/react/dist/ssr/Robot"
+import { MicrosoftTeamsLogoIcon } from "@phosphor-icons/react/dist/ssr/MicrosoftTeamsLogo"
 import { SlackLogoIcon } from "@phosphor-icons/react/dist/ssr/SlackLogo"
 import { WarningCircleIcon } from "@phosphor-icons/react/dist/ssr/WarningCircle"
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
@@ -92,6 +93,10 @@ const SOURCE_META: Record<AgentSource, { icon: IconComponent; label: string }> =
     dashboard: { icon: ChatCircleIcon, label: "Started from the dashboard" },
     github: { icon: GithubLogoIcon, label: "Triggered from GitHub" },
     slack: { icon: SlackLogoIcon, label: "Triggered from Slack" },
+    teams: {
+      icon: MicrosoftTeamsLogoIcon,
+      label: "Triggered from Microsoft Teams",
+    },
     linear: { icon: LinearLogoIcon, label: "Triggered from Linear" },
     schedule: { icon: CalendarBlankIcon, label: "Triggered from a schedule" },
   }

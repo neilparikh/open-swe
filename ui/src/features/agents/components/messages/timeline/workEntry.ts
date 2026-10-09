@@ -63,6 +63,7 @@ function iconForChunk(chunk: ToolExecutionChunk): WorkEntryIconName {
     case "think":
       return "bot"
     case "slack":
+    case "teams":
     case "linear":
       return "message-circle"
     case "task":
@@ -237,6 +238,7 @@ function toolActivityVerb(chunk: ToolExecutionChunk): string {
     case "think":
       return "Thinking"
     case "slack":
+    case "teams":
     case "linear":
       return "Sending update"
     case "managed-tools":

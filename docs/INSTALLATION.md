@@ -392,7 +392,7 @@ Open SWE listens for Linear comments that mention `@openswe`.
 <details id="microsoft-teams">
 <summary><strong>Microsoft Teams (preview)</strong></summary>
 
-The Teams bot is a preview of the installation, authentication, and account-linking plumbing: it greets people whose Microsoft account is linked to Open SWE and does not start runs yet.
+Open SWE answers direct messages in Microsoft Teams (preview). A direct message with the bot is one ongoing agent thread, private to the person, that runs as their linked GitHub account; a message sent while it works interrupts with the new request, and `new` or `start over` begins a fresh thread. Channels and group chats are not supported yet: the bot asks to be messaged directly.
 
 1. In the Azure portal, **Create a resource → Azure Bot**. Choose **Single Tenant** as the type of app, with a new Microsoft App ID; the free F0 tier is enough.
 2. In the bot's **Settings → Configuration**, set **Messaging endpoint** to `<URL>/webhooks/teams`. Save **Microsoft App ID** as `TEAMS_CLIENT_ID` and **App Tenant ID** as `TEAMS_TENANT_ID`. **Manage**, next to the app id, opens the app registration; under **Certificates & secrets**, create a client secret and save its value as `TEAMS_CLIENT_SECRET`.
@@ -403,9 +403,9 @@ The Teams bot is a preview of the installation, authentication, and account-link
 
 Deliveries are accepted only with a Bot Framework token issued for `TEAMS_CLIENT_ID`, and replies only go to Microsoft's own service URLs. With any of the three variables unset, `/webhooks/teams` answers 503 and the Microsoft Teams connection is hidden.
 
-Each person links their account under **Settings → Connections → Microsoft Teams**. The link is the Entra object id from a verified Microsoft sign in, the same id Teams sends with every message; only accounts in `TEAMS_TENANT_ID` can link, and no email is stored from it.
+Each person links their account under **Settings → Connections → Microsoft Teams**. The link is the Entra object id from a verified Microsoft sign in, the same id Teams sends with every message; only accounts in `TEAMS_TENANT_ID` can link, and no email is stored from it. Runs need the person's GitHub sign-in to be current, as in Slack. The agent answers through its `teams_reply` tool; failure replies for runs that die also reach Teams when `RUN_COMPLETE_WEBHOOK_SECRET` and `COMPLETION_WEBHOOK_URL` are set.
 
-**Verify:** send the bot a direct message, or `@`-mention it in a team channel; it asks you to connect your account. Connect Microsoft Teams in your settings and message it again; it replies `hi <your GitHub login>`. Installing and removing the app are logged.
+**Verify:** send the bot a direct message; it asks you to connect your account. Connect Microsoft Teams in your settings and message it again with a request such as `what's in the repo?`: it shows typing, replies with a short progress note, then the answer, and the dashboard lists a private thread. Send `new` to start over. Installing and removing the app are logged.
 
 </details>
 

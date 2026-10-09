@@ -1,27 +1,40 @@
-"""Teams deliveries reach the bot only with a verified token naming a Microsoft host."""
+"""Teams deliveries reach the bot only verified, and only linked direct messages start runs."""
 
 import json
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
+from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 from fastapi import FastAPI
 from langgraph_runtime_inmem.queue import _enable_blockbuster
+from microsoft_agents.activity import Activity
 from microsoft_agents.authentication.msal import msal_auth
-from microsoft_agents.hosting.core import ClaimsIdentity, JwtTokenValidator, TurnContext
+from microsoft_agents.hosting.core import (
+    ClaimsIdentity,
+    JwtTokenValidator,
+    TurnContext,
+    TurnState,
+)
 from microsoft_agents.hosting.fastapi import CloudAdapter
 
-from openswe.teams import bot
+from openswe.source_context import TeamsConversationRef
+from openswe.teams import bot, runs
 from openswe.teams.routes import router
 from openswe.users import User, UserIdentity
+from openswe.webhooks import common
+from openswe.workspaces.routing import WorkspaceResolution
 
 _CLIENT_ID = "6a1f0c52-3c39-4a39-9a8e-2c5a3a0f4b11"
 _TENANT_ID = "0b9f1e2d-7c6a-4f5e-8d3c-2b1a09f8e7d6"
 _TEAMS_SERVICE_URL = "https://smba.trafficmanager.net/amer/"
 _ALICE_OBJECT_ID = "alice-object-id"
+_DIRECT_MESSAGE = "a:alice-and-the-bot"
 
 
 @pytest.fixture(autouse=True)
@@ -39,6 +52,105 @@ def process_activity(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
     turn = AsyncMock()
     monkeypatch.setattr(CloudAdapter, "process_activity", turn)
     return turn
+
+
+@dataclass
+class Platform:
+    """The run path's outer edges, faked; what the handler decided lands here."""
+
+    dispatch: AsyncMock
+    upsert: AsyncMock
+    cancel: AsyncMock
+
+
+@pytest.fixture
+def platform(monkeypatch: pytest.MonkeyPatch, registry_db: None) -> Platform:
+    alice = User(identities=[UserIdentity(provider="github", external_id="1", login="alice")])
+
+    async def linked_user(provider: str, external_id: str) -> User | None:
+        return alice if (provider, external_id) == ("microsoft", _ALICE_OBJECT_ID) else None
+
+    async def no_thread_yet(thread_id: str) -> None:
+        raise _NotFound(thread_id)
+
+    monkeypatch.setattr(User, "for_identity", linked_user)
+    monkeypatch.setattr(common, "get_valid_access_token", AsyncMock(return_value="gho_alice"))
+    monkeypatch.setattr(common, "get_profile_default_repo", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        common, "get_workspace_settings", AsyncMock(return_value=SimpleNamespace(default_repo=None))
+    )
+    monkeypatch.setattr(
+        runs,
+        "langgraph_client",
+        lambda: SimpleNamespace(threads=SimpleNamespace(get=no_thread_yet)),
+    )
+    monkeypatch.setattr(
+        runs,
+        "resolve_workspace",
+        AsyncMock(return_value=WorkspaceResolution("default", "instance_default")),
+    )
+    platform = Platform(
+        dispatch=AsyncMock(return_value={"run_id": "run-1"}),
+        upsert=AsyncMock(return_value=True),
+        cancel=AsyncMock(return_value=[]),
+    )
+    monkeypatch.setattr(common, "dispatch_agent_run", platform.dispatch)
+    monkeypatch.setattr(common, "upsert_agent_thread_metadata", platform.upsert)
+    monkeypatch.setattr(runs, "cancel_active_runs", platform.cancel)
+    return platform
+
+
+class _NotFound(Exception):
+    status_code = 404
+
+
+class _Context:
+    """The part of a ``TurnContext`` the message handler uses."""
+
+    def __init__(self, activity: Activity) -> None:
+        self.activity = activity
+        self.sent: list[object] = []
+
+    async def send_activity(self, activity_or_text: object) -> None:
+        self.sent.append(activity_or_text)
+
+    @property
+    def texts(self) -> list[str]:
+        return [sent for sent in self.sent if isinstance(sent, str)]
+
+
+def _activity_json(
+    *,
+    activity_id: str = "1",
+    text: str = "what's in the repo?",
+    service_url: str = _TEAMS_SERVICE_URL,
+    sender_object_id: str = _ALICE_OBJECT_ID,
+    conversation_type: str = "personal",
+) -> dict[str, Any]:
+    return {
+        "type": "message",
+        "id": activity_id,
+        "channelId": "msteams",
+        "serviceUrl": service_url,
+        "from": {"id": "29:alice", "aadObjectId": sender_object_id},
+        "recipient": {"id": f"28:{_CLIENT_ID}"},
+        "conversation": {
+            "id": _DIRECT_MESSAGE,
+            "tenantId": _TENANT_ID,
+            "conversationType": conversation_type,
+        },
+        "text": text,
+    }
+
+
+async def _message(**fields: Any) -> _Context:
+    context = _Context(Activity.model_validate(_activity_json(**fields)))
+    await runs.handle_message(cast(TurnContext, context), cast(TurnState, None))
+    return context
+
+
+def _dispatched_thread(platform: Platform, call: int = -1) -> str:
+    return platform.dispatch.await_args_list[call].args[0]
 
 
 @contextmanager
@@ -59,21 +171,6 @@ class _BlockingMsalClient:
 
     def acquire_token_for_client(self, scopes: list[str]) -> dict[str, object]:
         return {"access_token": "bot-token", "expires_in": 3600}
-
-
-def _activity(service_url: str, sender_object_id: str = _ALICE_OBJECT_ID) -> bytes:
-    return json.dumps(
-        {
-            "type": "message",
-            "id": "1",
-            "channelId": "msteams",
-            "serviceUrl": service_url,
-            "from": {"id": "29:someone", "aadObjectId": sender_object_id},
-            "recipient": {"id": f"28:{_CLIENT_ID}"},
-            "conversation": {"id": "a:conversation", "tenantId": _TENANT_ID},
-            "text": "hello",
-        }
-    ).encode()
 
 
 def _verified_as_microsoft(monkeypatch: pytest.MonkeyPatch, service_url: str) -> None:
@@ -98,7 +195,7 @@ async def _post(body: bytes, authorization: str | None) -> httpx.Response:
 async def test_teams_webhook_rejects_unverified_deliveries(
     process_activity: AsyncMock, authorization: str | None
 ) -> None:
-    response = await _post(_activity(_TEAMS_SERVICE_URL), authorization)
+    response = await _post(json.dumps(_activity_json()).encode(), authorization)
     assert response.status_code == 401
     process_activity.assert_not_awaited()
 
@@ -110,7 +207,9 @@ async def test_teams_webhook_never_replies_to_a_non_microsoft_service_url(
     service_url = "https://attacker.example/"
     _verified_as_microsoft(monkeypatch, service_url)
 
-    response = await _post(_activity(service_url), "Bearer signed-by-microsoft")
+    response = await _post(
+        json.dumps(_activity_json(service_url=service_url)).encode(), "Bearer signed-by-microsoft"
+    )
 
     assert response.status_code == 401
     assert "host validator" in response.text
@@ -118,42 +217,141 @@ async def test_teams_webhook_never_replies_to_a_non_microsoft_service_url(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("sender_object_id", "reply"),
-    [
-        pytest.param(_ALICE_OBJECT_ID, "hi alice", id="linked"),
-        pytest.param(
-            "someone-else",
-            "I don't know who you are yet. Connect Microsoft Teams in "
-            "[your Open SWE settings](https://openswe.example/my-settings/connections), "
-            "then message me again.",
-            id="unlinked",
-        ),
-    ],
-)
-async def test_teams_webhook_greets_the_linked_account_without_blocking_the_event_loop(
-    monkeypatch: pytest.MonkeyPatch, sender_object_id: str, reply: str
+async def test_teams_webhook_starts_a_run_without_blocking_the_event_loop(
+    monkeypatch: pytest.MonkeyPatch, platform: Platform
 ) -> None:
-    alice = User(identities=[UserIdentity(provider="github", external_id="1", login="alice")])
-
-    async def linked_user(provider: str, external_id: str) -> User | None:
-        return alice if (provider, external_id) == ("microsoft", _ALICE_OBJECT_ID) else None
-
-    replies: list[object] = []
+    sent: list[object] = []
 
     async def send_activity(_context: TurnContext, activity: object, *_: object) -> None:
-        replies.append(activity)
+        sent.append(activity)
 
-    monkeypatch.setenv("DASHBOARD_BASE_URL", "https://openswe.example")
     _verified_as_microsoft(monkeypatch, _TEAMS_SERVICE_URL)
-    monkeypatch.setattr(User, "for_identity", linked_user)
     monkeypatch.setattr(msal_auth, "ConfidentialClientApplication", _BlockingMsalClient)
     monkeypatch.setattr(TurnContext, "send_activity", send_activity)
 
     with langgraph_dev_blocking_checks():
-        response = await _post(
-            _activity(_TEAMS_SERVICE_URL, sender_object_id), "Bearer signed-by-microsoft"
-        )
+        response = await _post(json.dumps(_activity_json()).encode(), "Bearer signed-by-microsoft")
 
     assert response.status_code == 202
-    assert replies == [reply]
+    platform.dispatch.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_a_linked_direct_message_runs_privately_in_one_ongoing_thread(
+    platform: Platform,
+) -> None:
+    await _message(activity_id="1")
+    await _message(activity_id="2", text="and the tests?")
+
+    assert _dispatched_thread(platform, 0) == _dispatched_thread(platform, 1)
+    first = platform.dispatch.await_args_list[0]
+    assert first.kwargs["multitask_strategy"] == "interrupt"
+    configurable = first.args[2]
+    assert configurable["source"] == "teams"
+    assert configurable["github_login"] == "alice"
+    assert TeamsConversationRef.model_validate(configurable["teams_conversation"]) == (
+        TeamsConversationRef(
+            service_url=_TEAMS_SERVICE_URL,
+            conversation_id=_DIRECT_MESSAGE,
+            tenant_id=_TENANT_ID,
+            bot_id=f"28:{_CLIENT_ID}",
+            user_id="29:alice",
+            user_aad_object_id=_ALICE_OBJECT_ID,
+        )
+    )
+    written = platform.upsert.await_args_list[0].kwargs
+    assert (written["visibility"], written["owner_login"]) == ("private", "alice")
+
+
+@pytest.mark.asyncio
+async def test_a_redelivered_message_runs_once(platform: Platform) -> None:
+    await _message(activity_id="1")
+    await _message(activity_id="1")
+
+    platform.dispatch.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_unpersisted_thread_metadata_starts_no_run(platform: Platform) -> None:
+    platform.upsert.return_value = False
+
+    with pytest.raises(RuntimeError):
+        await _message(activity_id="1")
+    platform.dispatch.assert_not_awaited()
+
+    platform.upsert.return_value = True
+    await _message(activity_id="1")
+    platform.dispatch.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_starting_over_stops_the_run_and_moves_to_a_new_thread(platform: Platform) -> None:
+    await _message(activity_id="1")
+    first_thread = _dispatched_thread(platform)
+
+    reset = await _message(activity_id="2", text="  Start over ")
+
+    platform.cancel.assert_awaited_once_with(first_thread)
+    assert reset.texts == [runs.STARTED_OVER]
+    platform.dispatch.assert_awaited_once()
+
+    await _message(activity_id="3", text="new question")
+    assert _dispatched_thread(platform) != first_thread
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("fields", "token", "reply"),
+    [
+        pytest.param({"conversation_type": "channel"}, "gho_alice", "direct message", id="channel"),
+        pytest.param(
+            {"sender_object_id": "someone-else"}, "gho_alice", "who you are", id="unlinked"
+        ),
+        pytest.param({}, None, "sign-in has expired", id="no-github-token"),
+    ],
+)
+async def test_only_linked_direct_messages_start_runs(
+    platform: Platform,
+    monkeypatch: pytest.MonkeyPatch,
+    fields: dict[str, str],
+    token: str | None,
+    reply: str,
+) -> None:
+    monkeypatch.setattr(common, "get_valid_access_token", AsyncMock(return_value=token))
+
+    context = await _message(**fields)
+
+    platform.dispatch.assert_not_awaited()
+    assert len(context.texts) == 1 and reply in context.texts[0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "service_url", ["https://attacker.example/", "http://smba.trafficmanager.net/amer/"]
+)
+async def test_replies_never_leave_microsofts_bot_framework_hosts(
+    monkeypatch: pytest.MonkeyPatch, service_url: str
+) -> None:
+    token_clients: list[object] = []
+
+    class _RecordingMsalClient:
+        def __init__(self, **_: object) -> None:
+            token_clients.append(self)
+
+        def acquire_token_for_client(self, scopes: list[str]) -> dict[str, object]:
+            return {"access_token": "bot-token", "expires_in": 3600}
+
+    monkeypatch.setattr(msal_auth, "ConfidentialClientApplication", _RecordingMsalClient)
+    teams_bot = bot.TeamsBot.configured()
+    assert teams_bot is not None
+
+    with pytest.raises(bot.TeamsDeliveryRefused):
+        await teams_bot.send(
+            TeamsConversationRef(
+                service_url=service_url,
+                conversation_id=_DIRECT_MESSAGE,
+                bot_id=f"28:{_CLIENT_ID}",
+            ),
+            "hi",
+        )
+    assert token_clients == []

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { Badge } from "@langchain/macaw-components/Badge"
 import { Button } from "@langchain/macaw-components/Button"
+import type { IconComponent } from "@langchain/macaw-components/Icon"
 import { SlackLogoIcon } from "@phosphor-icons/react/dist/ssr/SlackLogo"
 
 import type { LangSmithConnectionStatus, SessionUser } from "@/lib/api"
@@ -17,19 +18,31 @@ function StatusPill({ connected }: { connected: boolean }) {
   )
 }
 
-function SlackRow({ user }: { user: SessionUser }) {
+function AccountRow({
+  label,
+  icon,
+  provider,
+  enabled,
+  linkedAs,
+  unlinkedDescription,
+}: {
+  label: string
+  icon: IconComponent
+  provider: "slack"
+  enabled: boolean
+  /** How the linked account reads after "Linked to", or null while unlinked. */
+  linkedAs: string | null
+  unlinkedDescription: string
+}) {
   const qc = useQueryClient()
   const [connecting, setConnecting] = useState(false)
-
-  const slackUserId = user.slack_user_id ?? null
-  const workEmail = user.email ?? null
-  const connected = !!slackUserId
+  const connected = linkedAs !== null
 
   const connect = () => {
     setConnecting(true)
     // The link lands on the session's user row; refresh it when the OAuth redirect returns.
     void qc.invalidateQueries({ queryKey: ["session"] })
-    void connectService("slack")?.finally(() => {
+    void connectService(provider)?.finally(() => {
       setConnecting(false)
       void qc.invalidateQueries({ queryKey: ["session"] })
     })
@@ -37,21 +50,17 @@ function SlackRow({ user }: { user: SessionUser }) {
 
   return (
     <SettingsRow
-      label="Slack"
-      description={
-        connected
-          ? `Linked to Slack member ${slackUserId}${workEmail ? ` · ${workEmail}` : ""}.`
-          : "Sign in with Slack so Open SWE resolves your GitHub account when you tag it — the verified email also resolves Linear mentions."
-      }
+      label={label}
+      description={connected ? `Linked to ${linkedAs}.` : unlinkedDescription}
       control={
         <div className="flex items-center gap-space-2">
           <StatusPill connected={connected} />
-          {user.slack_oauth_enabled ? (
+          {enabled ? (
             <Button
               size="xs"
               color={connected ? "secondary" : "primary"}
               variant={connected ? "outlined" : "normal"}
-              leftDecorator={SlackLogoIcon}
+              leftDecorator={icon}
               onClick={connect}
               disabled={connecting}
             >
@@ -63,7 +72,7 @@ function SlackRow({ user }: { user: SessionUser }) {
             </Button>
           ) : (
             <span className="text-xxs text-secondary">
-              Sign in with Slack unavailable
+              Sign in with {label} unavailable
             </span>
           )}
         </div>
@@ -162,7 +171,18 @@ function LangSmithRow() {
 export function ConnectionsSection({ user }: { user: SessionUser }) {
   return (
     <SettingsSection title="Accounts">
-      <SlackRow user={user} />
+      <AccountRow
+        label="Slack"
+        icon={SlackLogoIcon}
+        provider="slack"
+        enabled={!!user.slack_oauth_enabled}
+        linkedAs={
+          user.slack_user_id
+            ? `Slack member ${user.slack_user_id}${user.email ? ` · ${user.email}` : ""}`
+            : null
+        }
+        unlinkedDescription="Sign in with Slack so Open SWE resolves your GitHub account when you tag it — the verified email also resolves Linear mentions."
+      />
       <LangSmithRow />
     </SettingsSection>
   )

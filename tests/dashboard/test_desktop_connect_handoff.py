@@ -23,6 +23,7 @@ from openswe.dashboard import routes
 from openswe.dashboard.oauth import COOKIE_NAME, issue_session
 from openswe.slack import connect
 from openswe.slack.oauth import SlackIdentity
+from openswe.users import User
 
 _VERIFIER = "desktop-connect-verifier"
 _CHALLENGE = (
@@ -51,15 +52,15 @@ def links(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
         )
 
     collected: list[dict[str, Any]] = []
-    user = connect.User()
+    user = User()
 
-    async def fake_link(provider: str, external_id: str, **kwargs: Any) -> connect.User:
+    async def fake_link(provider: str, external_id: str, **kwargs: Any) -> User:
         collected.append({"provider": provider, "external_id": external_id, **kwargs})
         return user
 
     monkeypatch.setattr(user, "link", fake_link)
-    monkeypatch.setattr(connect.User, "get", AsyncMock(return_value=user))
-    monkeypatch.setattr(connect.User, "for_login", AsyncMock(return_value=user))
+    monkeypatch.setattr(User, "get", AsyncMock(return_value=user))
+    monkeypatch.setattr(User, "for_login", AsyncMock(return_value=user))
     monkeypatch.setattr(connect, "slack_oauth_configured", lambda: True)
     monkeypatch.setattr(
         connect,
@@ -138,6 +139,7 @@ def test_desktop_slack_connect_links_under_the_session_the_app_holds(
             {
                 "provider": "slack",
                 "external_id": "U123",
+                "login": "",
                 "email": "alice@slack.example",
                 "team_id": "T1",
             }
@@ -149,7 +151,8 @@ def test_desktop_slack_connect_links_under_the_session_the_app_holds(
     payload = jwt.decode(handoff, "test-secret", algorithms=["HS256"])
     assert "alice" not in payload.values()
     assert set(payload) == {
-        "slack_user_id",
+        "external_id",
+        "login",
         "email",
         "team_id",
         "provider",

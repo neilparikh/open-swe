@@ -15,9 +15,15 @@ from datetime import timedelta
 from http import HTTPStatus
 from typing import Any, Literal, Self
 
+from aiohttp import ClientError, ClientTimeout
 from langgraph_sdk.client import LangGraphClient
 from microsoft_agents.activity import Activity, ActivityTypes, AdaptiveCardInvokeResponse
-from microsoft_agents.hosting.core import TurnContext, TurnState
+from microsoft_agents.hosting.core import (
+    ConnectorClient,
+    ConnectorClientBase,
+    TurnContext,
+    TurnState,
+)
 
 from openswe import event_claims
 from openswe.dashboard.oauth import build_settings_url
@@ -42,6 +48,9 @@ _ANSWER_CLAIM_TTL = timedelta(days=7)
 _CARD_RESPONSE = "application/vnd.microsoft.card.adaptive"
 _MESSAGE_RESPONSE = "application/vnd.microsoft.activity.message"
 _START_OVER_COMMANDS = frozenset({"new", "start over"})
+_SEEN_REACTION = "1f440_eyes"
+# Bot Framework redelivers a message it waits on for 15 seconds.
+_REACTION_TIMEOUT = ClientTimeout(total=5)
 _TITLE_MAX_CHARS = 80
 
 _MENTION = re.compile(r"<at>(.*?)</at>", re.DOTALL)
@@ -268,10 +277,34 @@ async def _handle(context: TurnContext) -> None:
         return
     if not message.text:
         return
+    await _mark_seen(context)
     if message.kind == "direct":
         # Teams shows typing in chats only, not in channel threads.
         await context.send_activity(Activity(type=ActivityTypes.typing))
     await message.start_run(conversation, user)
+
+
+async def _mark_seen(context: TurnContext) -> None:
+    """React 👀 to the turn's message, so its sender knows it was picked up before the agent replies."""
+    activity = context.activity
+    connector = context.services.get(ConnectorClientBase)
+    if not activity.id or not activity.conversation or not isinstance(connector, ConnectorClient):
+        return
+    # The SDK has no reactions call; this is the Teams endpoint, on the turn's verified host and token.
+    path = (
+        f"v3/conversations/{activity.conversation.id}/activities/{activity.id}"
+        f"/reactions/{_SEEN_REACTION}"
+    )
+    try:
+        async with connector.client.put(path, timeout=_REACTION_TIMEOUT) as response:
+            response.raise_for_status()
+    except ClientError, TimeoutError:
+        # The reaction is only an acknowledgement; the run starts regardless.
+        logger.warning(
+            "Could not react to a Teams message",
+            extra={"teams_activity_id": activity.id},
+            exc_info=True,
+        )
 
 
 async def _existing_metadata(client: LangGraphClient, thread_id: str) -> JsonObject | None:

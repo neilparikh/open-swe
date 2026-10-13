@@ -2,8 +2,8 @@
 
 import json
 import time
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, cast
@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+from aiohttp import ClientSession
 from fastapi import FastAPI
 from langgraph_runtime_inmem.queue import _enable_blockbuster
 from microsoft_agents.activity import Activity
@@ -113,6 +114,8 @@ class _Context:
     def __init__(self, activity: Activity) -> None:
         self.activity = activity
         self.sent: list[object] = []
+        # No connector client, so the handler skips its 👀 reaction.
+        self.services = SimpleNamespace(get=lambda _service: None)
 
     async def send_activity(self, activity_or_text: object) -> None:
         self.sent.append(activity_or_text)
@@ -221,22 +224,35 @@ async def test_teams_webhook_never_replies_to_a_non_microsoft_service_url(
 
 
 @pytest.mark.asyncio
-async def test_teams_webhook_starts_a_run_without_blocking_the_event_loop(
+async def test_teams_webhook_acknowledges_and_starts_a_run_without_blocking_the_event_loop(
     monkeypatch: pytest.MonkeyPatch, platform: Platform
 ) -> None:
     sent: list[object] = []
+    reactions: list[tuple[str, str]] = []
 
     async def send_activity(_context: TurnContext, activity: object, *_: object) -> None:
         sent.append(activity)
 
+    @asynccontextmanager
+    async def put(session: ClientSession, path: str, **_: object) -> AsyncIterator[object]:
+        reactions.append((path, session.headers["Authorization"]))
+        yield SimpleNamespace(raise_for_status=lambda: None)
+
     _verified_as_microsoft(monkeypatch, _TEAMS_SERVICE_URL)
     monkeypatch.setattr(msal_auth, "ConfidentialClientApplication", _BlockingMsalClient)
     monkeypatch.setattr(TurnContext, "send_activity", send_activity)
+    monkeypatch.setattr(ClientSession, "put", put)
 
     with langgraph_dev_blocking_checks():
         response = await _post(json.dumps(_activity_json()).encode(), "Bearer signed-by-microsoft")
 
     assert response.status_code == 202
+    assert reactions == [
+        (
+            f"v3/conversations/{_DIRECT_MESSAGE}/activities/1/reactions/1f440_eyes",
+            "Bearer bot-token",
+        )
+    ]
     platform.dispatch.assert_awaited_once()
 
 

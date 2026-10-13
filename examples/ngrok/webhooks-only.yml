@@ -3,6 +3,20 @@
 # so everything but the signature-checked webhooks must stay on localhost. `make tunnel` passes
 # this file to `ngrok http 2024`; any other tunnel needs an equivalent allowlist.
 on_http_request:
+  # Slack OAuth redirects to the public URL; ngrok answers with a page that hands the browser back
+  # to localhost, where the session cookie lives. The free plan has no redirect action, hence the script.
+  - expressions:
+      - "req.url.path == '/dashboard/api/slack/callback'"
+    actions:
+      - type: custom-response
+        config:
+          status_code: 200
+          headers:
+            content-type: text/html
+            cache-control: no-store
+          body: >-
+            <!doctype html><title>Redirecting…</title>
+            <script>location.replace("http://localhost:2024" + location.pathname + location.search)</script>
   - expressions:
       - "!req.url.path.startsWith('/webhooks/')"
     actions:
